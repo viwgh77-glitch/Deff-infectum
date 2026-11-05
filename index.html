@@ -1,0 +1,2848 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>WHITE HOOK — ACT 3</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; touch-action:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; background:#000; overflow:hidden; font-family:monospace; }
+  #cv { position:fixed; left:0; top:0; z-index:0; }
+  #hand { position:fixed; left:0; top:0; width:100vw; height:100vh; pointer-events:none; z-index:1000; will-change:transform; }
+  #handAttack { position:fixed; left:0; top:0; width:100vw; height:100vh; pointer-events:none; z-index:1001; will-change:transform; display:none; }
+  .enemy-img { position:fixed; pointer-events:none; z-index:100; display:none; will-change:left,top,width,height,filter; }
+  .btn {
+    position:absolute; bottom:24px; z-index:2000;
+    width:84px; height:84px; border-radius:50%;
+    background:rgba(40,20,50,0.4); border:2px solid rgba(110,70,130,0.7);
+    color:#b0a0c0; font-size:12px; font-weight:bold; letter-spacing:1px;
+    display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);
+    text-shadow:0 0 5px rgba(80,40,100,0.8);
+  }
+  .btn:active { background:rgba(110,70,130,0.6); transform:scale(0.92); }
+  #hook { right:20px; bottom:130px; }
+  #dash { right:130px; bottom:130px; }
+  #fist { right:130px; bottom:24px; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<img id="hand" src="rukabarta.gif" alt="">
+<img id="handAttack" src="atakabarta.gif" alt="">
+<div class="btn" id="hook">КРЮК</div>
+<div class="btn" id="dash">РЫВОК</div>
+<div class="btn" id="fist">РУКА</div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const handEl = document.getElementById('hand');
+const handAttackEl = document.getElementById('handAttack');
+let W, H;
+
+function resize(){
+  W = window.innerWidth;
+  H = window.innerHeight;
+  const dpr = devicePixelRatio;
+  cv.width  = W * dpr;
+  cv.height = H * dpr;
+  cv.style.width  = W + 'px';
+  cv.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', resize);
+resize();
+
+const WALL_H_STD   = 2.4;
+const WALL_H_TALL  = 8.0;
+const EYE_H  = 1.65;
+const ENEMY_HEIGHT = 1.8;
+const ENEMY_HEIGHT_2 = 2.1;
+const ANT_HEIGHT = 3.6;
+const ENEMY_ATTACK_DURATION = 1.0;
+const HAND_ACTION_DURATION = 1.0;
+const PLAYER_MELEE_RANGE = 3.5;
+const ENEMY_ATTACK_RANGE = 1.6;
+const ENEMY_HIT_TOLERANCE = 0.4;
+const ENEMY_DAMAGE = 10;
+
+const HAND_KICK_MAX = 55;
+const HOOK_AIM_DOT = 0.95;
+const HOOK_RANGE   = 10;
+const FOV = Math.PI/3;
+
+const ANT_DURATION = 30.0;
+const ANT_COOLDOWN_MAX = 30.0;
+
+const BOSS_MAX_HP = 500;
+const BOSS_HIT_DAMAGE = 25;
+const BOSS_BOTTOM = 0.2;
+const BOSS_TOP    = 7.5;
+const BOSS_ASPECT = 0.9;
+
+const MOLTEN_MAX_HP = 500;
+const MOLTEN_HIT_DAMAGE = 25;
+const MOLTEN_BOTTOM = 0.15;
+const MOLTEN_TOP = 2.25;
+const MOLTEN_ASPECT = 0.7;
+const CUBE_SPEED = 8.0;
+const CUBE_DAMAGE = 15;
+const CUBE_SIZE = 0.5;
+
+const SMOKE_MAX_HP = 500;
+const SMOKE_HIT_DAMAGE = 20;
+const SMOKE_TOUCH_DPS = 18;
+const SMOKE_TOUCH_RANGE = 1.0;
+const SMOKE_TELEPORT_INTERVAL_MIN = 1.0;
+const SMOKE_TELEPORT_INTERVAL_MAX = 3.0;
+const SMOKE_FAR_CUBE_MIN = 2.0;
+const SMOKE_FAR_CUBE_MAX = 3.0;
+const SMOKE_CUBE_DAMAGE = 12;
+const SMOKE_CUBE_SIZE = 2.4;
+const SMOKE_CUBE_SIZE_FAR = 3.2;
+const SMOKE_CHASE_SPEED = 3.6;
+const SMOKE_FAR_PORTAL_LIFE = 10.0;
+const SMOKE_NEAR_PORTAL_LIFE = 1.2;
+const SMOKE_ATAKING_DURATION = 1.0;
+
+const SAIMON_MAX_HP = 500;
+const SAIMON_HIT_DAMAGE = 25;
+const SAIMON_BOTTOM = 0.15;
+const SAIMON_TOP = 2.25;
+const SAIMON_ASPECT = 0.7;
+const SAIMON_CHASE_SPEED = 2.5;
+const SAIMON_RETREAT_SPEED = 3.2;
+const SAIMON_SIDE_SPEED = 1.8;
+const SAIMON_HAND_REACH = 4.5;
+const SAIMON_HAND_ATTACK_RANGE = 2.0;
+const SAIMON_HAND_DAMAGE = 18;
+const SAIMON_HAND_COOLDOWN = 2.0;
+
+const VOROT_MAX_HP = 500;
+const VOROT_HIT_DAMAGE = 25;
+const VOROT_FLEE_SPEED = 2.2;
+const VOROT_SPAWN_MIN = 1.0;
+const VOROT_SPAWN_MAX = 2.0;
+const VODOVOROT_LIFE = 2.0;
+const VODOVOROT_DAMAGE = 8;
+const VODOVOROT_FREEZE = 2.0;
+const VODOVOROT_TOUCH_RANGE = 1.2;
+const BADVODOROT_LIFE = 2.0;
+const BADVODOROT_DAMAGE = 30;
+const BADVODOROT_PULL_RANGE = 5.0;
+const BADVODOROT_PULL_FORCE = 3.5;
+
+let pitchPixels = 0;
+function updatePitchMax(){ return H * 0.4; }
+
+function getWallHeight(cell){
+  if (cell === 4) return WALL_H_TALL;
+  return WALL_H_STD;
+}
+
+// ===== ЦВЕТОВЫЕ ТЕМЫ ЛОКАЦИЙ =====
+// act1: туманная локация (серо-фиолетовый туман)
+// act2: локация рассвет (оранжево-розовый)
+// act3: красное небо с чёрными облаками
+// act4: тёмно-синее небо с чёрными облаками
+
+const THEMES = {
+  act1: {
+    skyTop:    '#1a1520',
+    skyBottom: '#3a2a45',
+    floorTop:  '#2a1f33',
+    floorBottom:'#0d0812',
+    fogColor:  'rgba(120,100,140,0.25)',
+    ceilingShade: [40, 30, 50],   // rgb base for ceiling shade
+    wallSide1: [55, 45, 65],
+    wallSide0: [80, 65, 90],
+    doorColor: [100, 60, 120]
+  },
+  act2: {
+    skyTop:    '#1a0a20',
+    skyBottom: '#ff6a3a',
+    floorTop:  '#3a2015',
+    floorBottom:'#0a0505',
+    fogColor:  'rgba(255,150,80,0.08)',
+    ceilingShade: [60, 30, 20],
+    wallSide1: [75, 50, 40],
+    wallSide0: [110, 80, 60],
+    doorColor: [200, 100, 50]
+  },
+  act3: {
+    skyTop:    '#000000',
+    skyBottom: '#6a0000',
+    floorTop:  '#1a0505',
+    floorBottom:'#000000',
+    fogColor:  'rgba(180,30,30,0.10)',
+    ceilingShade: [50, 10, 10],
+    wallSide1: [60, 20, 20],
+    wallSide0: [90, 30, 30],
+    doorColor: [180, 40, 40],
+    clouds: 'red'
+  },
+  act4: {
+    skyTop:    '#000000',
+    skyBottom: '#0a2a5c',
+    floorTop:  '#050a18',
+    floorBottom:'#000000',
+    fogColor:  'rgba(40,100,180,0.10)',
+    ceilingShade: [10, 20, 40],
+    wallSide1: [20, 35, 65],
+    wallSide0: [35, 55, 90],
+    doorColor: [40, 100, 180],
+    clouds: 'blue'
+  }
+};
+
+let currentTheme = THEMES.act1;
+
+// Процедурная отрисовка облаков для 3 и 4 актов
+function drawProceduralClouds(horizon, shakeX, shakeY, theme){
+  if (!theme.clouds) return;
+  const skyH = horizon;
+  if (skyH <= 0) return;
+  
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+  
+  const t = performance.now() * 0.00003;
+  const isRed = theme.clouds === 'red';
+  
+  // Базовое свечение
+  if (isRed) {
+    const sunX = W * 0.5;
+    const sunY = skyH * 0.5;
+    const grad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, W * 0.5);
+    grad.addColorStop(0, 'rgba(200,20,20,0.55)');
+    grad.addColorStop(0.15, 'rgba(120,0,0,0.4)');
+    grad.addColorStop(0.5, 'rgba(40,0,0,0.2)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, skyH);
+  } else {
+    const sunX = W * 0.5;
+    const sunY = skyH * 0.55;
+    const grad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, W * 0.45);
+    grad.addColorStop(0, 'rgba(30,100,180,0.5)');
+    grad.addColorStop(0.2, 'rgba(10,50,100,0.35)');
+    grad.addColorStop(0.6, 'rgba(0,10,30,0.15)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, skyH);
+  }
+  
+  // Чёрные облака (эллипсы)
+  ctx.filter = 'blur(18px)';
+  const cloudCount = 14;
+  for (let i = 0; i < cloudCount; i++) {
+    const seed = i * 137.5;
+    const baseX = (Math.sin(seed) * 0.5 + 0.5);
+    const baseY = (Math.cos(seed * 1.3) * 0.5 + 0.5);
+    const drift = Math.sin(t * 10 + i) * 0.03;
+    const cx = ((baseX + drift + 1) % 1) * W;
+    const cy = baseY * skyH;
+    const cw = W * (0.25 + (Math.sin(seed * 2.1) * 0.5 + 0.5) * 0.35);
+    const ch = skyH * (0.06 + (Math.cos(seed * 1.7) * 0.5 + 0.5) * 0.08);
+    
+    ctx.fillStyle = isRed ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.8)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, cw, ch, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.filter = 'none';
+  ctx.restore();
+}
+
+const player = {
+  x: 7.5, y: 6.5, dir: -Math.PI/2,
+  dashTimer: 0, dashSpeed: 12.0, dashAnim: 0,
+  handKick: 0, fistAnim: 0, hookAnim: 0, hookTarget: null,
+  hp: 1000, maxHp: 1000,
+  bob: 0, moving: 0,
+  gainText: '', gainTextTimer: 0,
+  shake: 0,
+  cameraRoll: 0,
+  cameraRolling: false,
+  frozenTimer: 0
+};
+
+const ant = {
+  active: false, cooldown: 0, timer: 0, x: 0, y: 0,
+  attackAnim: 0, attackCd: 0, facing: 0
+};
+const antEl = document.createElement('img');
+antEl.className = 'enemy-img';
+antEl.style.display = 'none';
+document.body.appendChild(antEl);
+
+const MAP_ACT3 = [
+  "111111111111111111111111111111",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "111111111111113333111111111111",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "100000000000000000000000000001",
+  "111111111111111111111111111111"
+];
+
+const MAP_ACT4 = [
+  "1111111111111111",
+  "1000000000000001",
+  "1000000000000001",
+  "1000000000000001",
+  "1000000000000001",
+  "1333333333333331",
+  "1000000000000001",
+  "1000000000000001",
+  "1000000000000001",
+  "1111111111111111"
+];
+
+let map = [];
+let MAP_W = 0, MAP_H = 0;
+
+let act2 = false;
+let act3 = false;
+let act4 = false;
+let transitionActive = false;
+let transitionTimer = 0;
+let pendingAct = 0;
+
+let dialogTimer = 0;
+let dialogActive = false;
+let bossRoomEntered = false;
+let doorOpened = false;
+
+let enemies = [];
+let enemyEls = [];
+
+const boss = {
+  name: 'mobius',
+  alive: true,
+  hp: BOSS_MAX_HP,
+  maxHp: BOSS_MAX_HP,
+  x: 28, y: 1.5,
+  dir: 1,
+  speed: 1.2
+};
+const bossEl = document.createElement('img');
+bossEl.className = 'enemy-img';
+bossEl.style.display = 'none';
+document.body.appendChild(bossEl);
+
+const molten = {
+  alive: true, hp: MOLTEN_MAX_HP, maxHp: MOLTEN_MAX_HP,
+  x: 16.0, y: 15.0, dir: 1,
+  mode: 'talk', talkIdx: 0, talkTimer: 0,
+  attackTimer: 3.0, attackAnim: 0,
+  teleportTimer: 4.0, fade: 1.0,
+  portal: 0, portalStage: 0,
+  moveTimer: 0.5, moveDir: 0, showBigCube: 0
+};
+const moltenEl = document.createElement('img');
+moltenEl.className = 'enemy-img';
+moltenEl.style.display = 'none';
+document.body.appendChild(moltenEl);
+const moltenCubes = [];
+
+let bossPhase = 'f1';
+let hurtTimer = 0;
+let hurtTalkIdx = 0;
+let hurtTalkTimer = 0;
+let outerTimer = 0;
+let outerWorldX = 0;
+let outerWorldY = 0;
+
+const HURT_LINES = ['нет', 'я не могу', 'проиграть'];
+
+const smoke = {
+  alive: true, hp: SMOKE_MAX_HP, maxHp: SMOKE_MAX_HP,
+  x: 16.0, y: 15.0, mode: 'idle',
+  teleportTimer: 2.0, farCubeTimer: 2.5, atakTimer: 0,
+  fade: 0.7, portal: 0, portalStage: 0,
+  portalX: 0, portalY: 0
+};
+const smokeEl = document.createElement('img');
+smokeEl.className = 'enemy-img';
+smokeEl.style.display = 'none';
+document.body.appendChild(smokeEl);
+
+const smokecubeImgEl = document.createElement('img');
+smokecubeImgEl.src = 'smokecube.gif';
+smokecubeImgEl.style.position = 'fixed';
+smokecubeImgEl.style.left = '-9999px';
+smokecubeImgEl.style.top = '-9999px';
+smokecubeImgEl.style.width = '64px';
+smokecubeImgEl.style.height = '64px';
+document.body.appendChild(smokecubeImgEl);
+
+const smokeNearPortal = { active: false, x: 0, y: 0, life: 0, maxLife: SMOKE_NEAR_PORTAL_LIFE };
+const smokeFarPortals = [];
+const smokeCubes = [];
+
+let act4Phase = 'f1';
+let saimonTalkIdx = 0;
+let saimonTalkTimer = 0;
+const SAIMON_LINES = ['опять ты', 'ди нафиг', 'УЛЬТРАКИЛЛ'];
+const SAIMON_HURT_LINE = 'FUCK';
+
+const saimon = {
+  alive: true,
+  hp: SAIMON_MAX_HP,
+  maxHp: SAIMON_MAX_HP,
+  x: 8.0, y: 6.5,
+  facing: 0,
+  state: 'idle',
+  retreatTimer: 0,
+  retreatDir: 0,
+  sideDir: 1,
+  handCooldown: 0,
+  handAttackAnim: 0,
+  _sideSign: 1
+};
+const saimonEl = document.createElement('img');
+saimonEl.className = 'enemy-img';
+saimonEl.style.display = 'none';
+document.body.appendChild(saimonEl);
+
+const saimonHandEl = document.createElement('img');
+saimonHandEl.className = 'enemy-img';
+saimonHandEl.style.display = 'none';
+document.body.appendChild(saimonHandEl);
+
+const voda = { active: false, x: 8.0, y: 6.5, mode: 'idle' };
+const vodaEl = document.createElement('img');
+vodaEl.className = 'enemy-img';
+vodaEl.src = 'badvodovorot.gif';
+vodaEl.dataset.src = 'badvodovorot.gif';
+vodaEl.style.display = 'none';
+document.body.appendChild(vodaEl);
+
+const vorot = {
+  alive: true,
+  hp: VOROT_MAX_HP,
+  maxHp: VOROT_MAX_HP,
+  x: 8.0, y: 6.5,
+  facing: 0,
+  vodovorotTimer: 1.0,
+  badvodovorotTimer: 1.5,
+  _wanderAngle: 0,
+  _wanderTimer: 0.5
+};
+const vorotEl = document.createElement('img');
+vorotEl.className = 'enemy-img';
+vorotEl.style.display = 'none';
+document.body.appendChild(vorotEl);
+
+const vodovorots = [];
+const badvodovorots = [];
+let waterOverlay = 0;
+
+// Пулы DOM-элементов для вихрей (чтобы GIF анимировался)
+const vodovorotPool = [];
+const badvodovorotPool = [];
+for (let i = 0; i < 20; i++) {
+  const el = document.createElement('img');
+  el.src = 'vodovorot.gif';
+  el.className = 'enemy-img';
+  el.style.display = 'none';
+  document.body.appendChild(el);
+  vodovorotPool.push(el);
+}
+for (let i = 0; i < 20; i++) {
+  const el = document.createElement('img');
+  el.src = 'badvodovorot.gif';
+  el.className = 'enemy-img';
+  el.style.display = 'none';
+  document.body.appendChild(el);
+  badvodovorotPool.push(el);
+}
+
+const MOLTEN_LINES = ['барт', 'верни долг', "достаточно"];
+let lineCounter = 0;
+let activeLines = [];
+
+let IMG_HAND_IDLE = 'rukabarta.gif';
+let IMG_HAND_DASH = 'krol.gif';
+
+const preloads = {};
+['vpered.gif','ataka.gif','konturias.gif','ball.gif','rukabarta.gif','atakabarta.gif','lazer.gif','krol.gif','ruka.gif','shelk.gif','distance.gif','ant.gif','antaka.gif','konturiasaataka.png','konturiaspose.gif','konturiasstop.gif','mobius.gif','molten.gif','moltenataking.gif','cube.png','moltenhurt.png','highouterversal.gif','smokemolten.gif','smokemoltenataking.gif','smokecube.gif','saimon.gif','saimonchil.gif','saimonhurt.gif','badvodovorot.gif','vorotsaimon.gif','vodovorot.gif'].forEach(src => {
+  const img = new Image();
+  img.src = src;
+  preloads[src] = img;
+});
+function getAspect(src){
+  const img = preloads[src];
+  if (img && img.naturalHeight > 0) return img.naturalWidth / img.naturalHeight;
+  return 0.45;
+}
+function isLoaded(src){
+  const img = preloads[src];
+  return img && img.complete && img.naturalWidth > 0;
+}
+
+const joy = { active:false, id:null, baseX:0, baseY:0, x:0, y:0, R:90, r:42, vx:0, vy:0 };
+cv.addEventListener('touchstart', e=>{ for (const t of e.changedTouches){ if (t.clientX < W*0.45 && t.clientY > H*0.25 && !joy.active){ joy.active=true; joy.id=t.identifier; joy.baseX=t.clientX; joy.baseY=t.clientY; joy.x=t.clientX; joy.y=t.clientY; } } }, {passive:false});
+cv.addEventListener('touchmove', e=>{ for (const t of e.changedTouches){ if (t.identifier === joy.id){ const dx=t.clientX-joy.baseX, dy=t.clientY-joy.baseY; const d=Math.hypot(dx,dy), max=joy.R; if (d>max){ joy.x=joy.baseX+dx/d*max; joy.y=joy.baseY+dy/d*max; } else { joy.x=t.clientX; joy.y=t.clientY; } joy.vx=(joy.x-joy.baseX)/max; joy.vy=(joy.y-joy.baseY)/max; } } }, {passive:false});
+cv.addEventListener('touchend', e=>{ for (const t of e.changedTouches){ if (t.identifier === joy.id){ joy.active=false; joy.id=null; joy.vx=0; joy.vy=0; } } }, {passive:false});
+let lookId = null, lookX = 0, lookY = 0;
+cv.addEventListener('touchstart', e=>{ for (const t of e.changedTouches){ if (t.clientX > W*0.45 && lookId === null){ lookId=t.identifier; lookX=t.clientX; lookY=t.clientY; } } }, {passive:false});
+cv.addEventListener('touchmove', e=>{ for (const t of e.changedTouches){ if (t.identifier === lookId){ const dx=t.clientX-lookX; const dy=t.clientY-lookY; player.dir += dx*0.006; pitchPixels -= dy*1.5; const pmax=updatePitchMax(); pitchPixels=Math.max(-pmax,Math.min(pmax,pitchPixels)); lookX=t.clientX; lookY=t.clientY; } } }, {passive:false});
+cv.addEventListener('touchend', e=>{ for (const t of e.changedTouches){ if (t.identifier === lookId) lookId=null; } }, {passive:false});
+cv.addEventListener('wheel', e=>{ e.preventDefault(); pitchPixels -= e.deltaY*0.5; const pmax=updatePitchMax(); pitchPixels=Math.max(-pmax,Math.min(pmax,pitchPixels)); }, {passive:false});
+let mouseDown = false;
+cv.addEventListener('mousedown', ()=>{ mouseDown = true; });
+cv.addEventListener('mouseup', ()=>{ mouseDown = false; });
+cv.addEventListener('mousemove', e=>{ if (mouseDown) player.dir += e.movementX*0.005; });
+
+const btns = {
+  hook: document.getElementById('hook'),
+  dash: document.getElementById('dash'),
+  fist: document.getElementById('fist'),
+};
+function onPress(el, fn){
+  el.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); fn(); }, {passive:false});
+  el.addEventListener('mousedown',  e=>{ e.preventDefault(); e.stopPropagation(); fn(); });
+}
+
+onPress(btns.dash, ()=>{
+  if (transitionActive) return;
+  if (player.frozenTimer > 0) return;
+  if (player.dashTimer > 0) {
+    player.dashSpeed = 24.0;
+    player.dashTimer = Math.max(player.dashTimer, 0.25);
+    player.dashAnim = 0.35;
+  } else {
+    player.dashSpeed = 12.0;
+    player.dashTimer = 0.25;
+    player.dashAnim = 0.35;
+  }
+  player.handKick = -joy.vx * HAND_KICK_MAX;
+  player.shake = Math.max(player.shake, 0.3);
+});
+
+onPress(btns.fist, ()=>{
+  if (transitionActive) return;
+  if (act3 && bossPhase === 'hurt') return;
+  if (act3 && bossPhase === 'f1' && molten.alive && molten.mode === 'talk') return;
+  if (act4 && (act4Phase === 'talk' || act4Phase === 'hurt_talk' || act4Phase === 'f2_transition')) return;
+
+  if (act2 || act3 || act4) {
+    player.fistAnim = 0.25;
+    lineCounter = (lineCounter % 4) + 1;
+    spawnLine(lineCounter);
+    playSnap();
+    if (act4 && act4Phase === 'f1' && saimon.alive && saimon.state !== 'retreat') {
+      startSaimonRetreat();
+    }
+    return;
+  }
+  if (player.fistAnim <= 0){
+    player.fistAnim = HAND_ACTION_DURATION;
+    punch(); playSnap();
+  }
+});
+
+onPress(btns.hook, ()=>{
+  if (transitionActive) return;
+  if (act2 || act3 || act4) {
+    if (!ant.active && ant.cooldown <= 0) {
+      ant.active = true;
+      ant.timer = ANT_DURATION;
+      ant.x = player.x + Math.cos(player.dir) * 1.5;
+      ant.y = player.y + Math.sin(player.dir) * 1.5;
+      ant.attackCd = 2.0;
+      ant.attackAnim = 0;
+      if (isWall(ant.x, ant.y)) { ant.x = player.x; ant.y = player.y; }
+      playSnap();
+    }
+    return;
+  }
+  if (player.hookAnim <= 0){
+    player.hookAnim = HAND_ACTION_DURATION;
+    player.hookTarget = getHookTarget();
+  }
+});
+
+function hasLineOfSight(x1, y1, x2, y2){
+  const dx = x2 - x1, dy = y2 - y1;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.01) return true;
+  const steps = Math.ceil(dist / 0.1);
+  for (let i = 1; i < steps; i++){
+    const t = i / steps;
+    if (isWall(x1 + dx*t, y1 + dy*t)) return false;
+  }
+  return true;
+}
+
+function isAimingAt(e){
+  const dx = e.x - player.x, dy = e.y - player.y;
+  const dist = Math.hypot(dx, dy);
+  if (!act2 && !act3 && !act4 && dist > PLAYER_MELEE_RANGE) return false;
+  if (!hasLineOfSight(player.x, player.y, e.x, e.y)) return false;
+  if (dist < 0.6) return true;
+  let a = Math.atan2(dy, dx) - player.dir;
+  while (a >  Math.PI) a -= 2*Math.PI;
+  while (a < -Math.PI) a += 2*Math.PI;
+  const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+  const projScale = H * 0.9;
+  const eh = (act2 || act3 || act4) ? ENEMY_HEIGHT_2 : ENEMY_HEIGHT;
+  const hpx = (eh / Math.max(0.4, dist)) * projScale;
+  const wpx = hpx * 0.45;
+  return Math.abs(W/2 - screenX) < wpx * 0.55;
+}
+
+function punch(){
+  for (const e of enemies){
+    if (!e.alive) continue;
+    if (!isAimingAt(e)) continue;
+    e.hp--;
+    e.hitFlash = 0.35;
+    if (e.hp <= 0){
+      e.alive = false;
+      const gain = 1 + Math.floor(Math.random() * 200);
+      player.hp = Math.min(player.maxHp, player.hp + gain);
+      player.gainText = '+' + gain;
+      player.gainTextTimer = 1.5;
+    }
+  }
+}
+
+function getHookTarget(){
+  let best = null, bestDot = HOOK_AIM_DOT;
+  const fx = Math.cos(player.dir), fy = Math.sin(player.dir);
+  for (const e of enemies){
+    if (!e.alive) continue;
+    const dx = e.x - player.x, dy = e.y - player.y;
+    const d = Math.hypot(dx, dy);
+    if (d > HOOK_RANGE || d < 0.1) continue;
+    const dot = (dx*fx + dy*fy) / d;
+    if (dot > bestDot){ bestDot = dot; best = e; }
+  }
+  return best;
+}
+
+let actx = null;
+function playSnap(){
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    const t = actx.currentTime;
+    for (let i=0;i<2;i++){
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type='square';
+      o.frequency.setValueAtTime(2200 - i*400, t + i*0.02);
+      o.frequency.exponentialRampToValueAtTime(600, t + i*0.02 + 0.03);
+      g.gain.setValueAtTime(0.15, t + i*0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + i*0.02 + 0.05);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t + i*0.02); o.stop(t + i*0.02 + 0.06);
+    }
+  } catch(err){}
+}
+
+function isWall(x, y){
+  const cx = Math.floor(x), cy = Math.floor(y);
+  if (cx<0||cy<0||cx>=MAP_W||cy>=MAP_H) return true;
+  const c = map[cy][cx];
+  return c === 1 || c === 3 || c === 4;
+}
+
+function isWallForEnemy(x, y) {
+  const r = 0.3;
+  if (isWall(x - r, y - r)) return true;
+  if (isWall(x + r, y - r)) return true;
+  if (isWall(x - r, y + r)) return true;
+  if (isWall(x + r, y + r)) return true;
+  return false;
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const l2 = (x2 - x1)**2 + (y2 - y1)**2;
+  if (l2 === 0) return Math.hypot(px - x1, py - y1);
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+}
+
+function project(wx, wy, wz) {
+  const dx = wx - player.x;
+  const dy = wy - player.y;
+  let angle = Math.atan2(dy, dx) - player.dir;
+  while(angle > Math.PI) angle -= Math.PI*2;
+  while(angle < -Math.PI) angle += Math.PI*2;
+  const dist = Math.hypot(dx, dy);
+  const depth = dist * Math.cos(angle);
+  if (depth <= 0.1) return null;
+  const projScale = H * 0.9;
+  const horizon = H/2 + pitchPixels + Math.sin(player.bob) * 3;
+  const screenX = W/2 + Math.tan(angle) * (W/2) / Math.tan(FOV/2);
+  const screenY = horizon + (EYE_H - wz) / depth * projScale;
+  return {x: screenX, y: screenY};
+}
+
+function isInView(x, y, margin) {
+  let a = Math.atan2(y - player.y, x - player.x) - player.dir;
+  while (a >  Math.PI) a -= 2*Math.PI;
+  while (a < -Math.PI) a += 2*Math.PI;
+  return Math.abs(a) < FOV / 2 - (margin || 0);
+}
+
+function spawnLine(type) {
+  const frontHit = castRay(player.x, player.y, player.dir);
+  const forwardDist = Math.min(3.0, frontHit.dist - 0.3);
+  const cx = player.x + Math.cos(player.dir) * forwardDist;
+  const cy = player.y + Math.sin(player.dir) * forwardDist;
+  const rightHit = castRay(cx, cy, player.dir + Math.PI/2);
+  const leftHit = castRay(cx, cy, player.dir - Math.PI/2);
+  const rx = cx + Math.cos(player.dir + Math.PI/2) * rightHit.dist;
+  const ry = cy + Math.sin(player.dir + Math.PI/2) * rightHit.dist;
+  const lx = cx + Math.cos(player.dir - Math.PI/2) * leftHit.dist;
+  const ly = cy + Math.sin(player.dir - Math.PI/2) * leftHit.dist;
+  const Lx = cx + (lx - cx) * 0.35;
+  const Ly = cy + (ly - cy) * 0.35;
+  const Rx = cx + (rx - cx) * 0.35;
+  const Ry = cy + (ry - cy) * 0.35;
+  activeLines.push({
+    type: type,
+    L: {x: Lx, y: Ly},
+    R: {x: Rx, y: Ry},
+    C: {x: cx, y: cy},
+    z1: type === 1 ? 0.5 : (type === 2 ? 2.0 : 0.0),
+    z2: type === 1 ? 0.5 : (type === 2 ? 2.0 : 2.4),
+    zCenter: type === 1 ? 0.5 : (type === 2 ? 2.0 : 1.2),
+    timer: 0,
+    hitEnemies: new Set()
+  });
+}
+
+// ============ АКТ 3 ============
+function moltenDie() {
+  bossPhase = 'hurt';
+  molten.alive = false;
+  molten.mode = 'dead';
+  hurtTimer = 2.0;
+  hurtTalkIdx = 0;
+  hurtTalkTimer = 0;
+  moltenEl.style.display = 'none';
+  player.shake = Math.max(player.shake, 1.0);
+}
+
+function startOuterPhase() {
+  bossPhase = 'outer';
+  outerTimer = 5.0;
+  moltenEl.style.display = 'none';
+  smokeEl.style.display = 'none';
+  player.shake = 1.8;
+  outerWorldX = player.x + Math.cos(player.dir) * 4.0;
+  outerWorldY = player.y + Math.sin(player.dir) * 4.0;
+}
+
+function startPhase2() {
+  bossPhase = 'f2';
+  moltenEl.style.display = 'none';
+  smoke.alive = true;
+  smoke.hp = SMOKE_MAX_HP;
+  smoke.maxHp = SMOKE_MAX_HP;
+  smoke.x = player.x + Math.cos(player.dir + Math.PI) * 4.0;
+  smoke.y = player.y + Math.sin(player.dir + Math.PI) * 4.0;
+  if (isWallForEnemy(smoke.x, smoke.y)) { smoke.x = player.x; smoke.y = player.y + 1; }
+  smoke.mode = 'idle';
+  smoke.teleportTimer = 1.5;
+  smoke.farCubeTimer = 2.0;
+  smoke.atakTimer = 0;
+  smoke.fade = 0.7;
+  smokeEl.src = 'smokemolten.gif';
+  smokeEl.dataset.src = 'smokemolten.gif';
+  smokeEl.style.display = 'block';
+  smokeNearPortal.active = false;
+  smokeFarPortals.length = 0;
+  smokeCubes.length = 0;
+}
+
+function smokeDie() {
+  bossPhase = 'dead';
+  smoke.alive = false;
+  smokeEl.style.display = 'none';
+  smokeNearPortal.active = false;
+  smokeFarPortals.length = 0;
+  smokeCubes.length = 0;
+  player.shake = Math.max(player.shake, 1.0);
+  // Переход в 4 акт после победы
+  setTimeout(() => { transitionActive = true; transitionTimer = 1.5; pendingAct = 4; }, 1000);
+}
+
+function moltenPickTeleportSpot() {
+  let best = null, bestScore = -999;
+  for (let tries = 0; tries < 40; tries++) {
+    const rx = 3 + Math.random() * 25;
+    const ry = 11 + Math.random() * 8;
+    if (isWallForEnemy(rx, ry)) continue;
+    const dToPlayer = Math.hypot(rx - player.x, ry - player.y);
+    if (dToPlayer < 3.5) continue;
+    let a = Math.atan2(ry - player.y, rx - player.x) - player.dir;
+    while (a >  Math.PI) a -= 2*Math.PI;
+    while (a < -Math.PI) a += 2*Math.PI;
+    const inView = Math.abs(a) < FOV / 2;
+    const score = (inView ? 15 : 0) + dToPlayer;
+    if (score > bestScore) { bestScore = score; best = {x: rx, y: ry}; }
+  }
+  if (!best) best = {x: 16.0, y: 15.0};
+  return best;
+}
+
+function updateMolten(dt) {
+  if (bossPhase !== 'f1') return;
+  if (!molten.alive) return;
+
+  if (molten.mode === 'talk') {
+    molten.talkTimer += dt;
+    const totalDur = 10.0;
+    const perLine = totalDur / MOLTEN_LINES.length;
+    const idx = Math.min(MOLTEN_LINES.length - 1, Math.floor(molten.talkTimer / perLine));
+    molten.talkIdx = idx;
+    if (molten.talkTimer >= totalDur) {
+      molten.mode = 'idle';
+      molten.attackTimer = 1.0 + Math.random() * 2.0;
+      molten.teleportTimer = 4.0 + Math.random() * 1.0;
+      molten.moveTimer = 0.4 + Math.random() * 0.6;
+      molten.moveDir = 0;
+    }
+    return;
+  }
+
+  if (molten.mode === 'dead') return;
+
+  if (molten.mode === 'teleportOut') {
+    molten.fade -= dt * 1.0;
+    molten.portal = Math.min(1, molten.portal + dt * 3);
+    if (molten.fade <= 0) {
+      molten.fade = 0;
+      molten.mode = 'teleportIn';
+      molten.portalStage = 1;
+      molten.portal = 0;
+      const spot = moltenPickTeleportSpot();
+      molten.x = spot.x;
+      molten.y = spot.y;
+      molten.teleportTimer = 1.0;
+    }
+    return;
+  }
+
+  if (molten.mode === 'teleportIn') {
+    molten.teleportTimer -= dt;
+    if (molten.portalStage === 1) molten.portal = Math.min(1, molten.portal + dt * 4);
+    if (molten.teleportTimer <= 0) {
+      molten.fade = 1;
+      molten.mode = 'idle';
+      molten.portal = 0;
+      molten.portalStage = 2;
+      molten.teleportTimer = 4.0 + Math.random() * 1.0;
+      molten.attackTimer = 1.0 + Math.random() * 2.0;
+    }
+    return;
+  }
+
+  if (molten.portal > 0 && molten.portalStage === 2) {
+    molten.portal -= dt * 1.2;
+    if (molten.portal < 0) molten.portal = 0;
+  }
+
+  molten.teleportTimer -= dt;
+  const dToPlayer = Math.hypot(player.x - molten.x, player.y - molten.y);
+  if (dToPlayer < 4.5 && molten.mode !== 'teleportOut' && molten.mode !== 'teleportIn') {
+    if (molten.teleportTimer > 2.0) molten.teleportTimer = 1.0 + Math.random() * 1.0;
+  }
+
+  if (molten.teleportTimer <= 0 && molten.mode === 'idle') {
+    molten.mode = 'teleportOut';
+    molten.showBigCube = 0.3;
+    return;
+  }
+
+  if (molten.showBigCube > 0) molten.showBigCube -= dt;
+
+  if (molten.mode === 'attack') {
+    molten.attackAnim -= dt;
+    if (molten.attackAnim <= 0) {
+      const dx = player.x - molten.x;
+      const dy = player.y - molten.y;
+      const d = Math.hypot(dx, dy) || 1;
+      moltenCubes.push({ x: molten.x, y: molten.y, vx: dx / d * CUBE_SPEED, vy: dy / d * CUBE_SPEED, life: 4.0 });
+      molten.mode = 'idle';
+      molten.attackTimer = 1.0 + Math.random() * 2.0;
+      molten.teleportTimer = Math.max(molten.teleportTimer, 4.0);
+    }
+    return;
+  }
+
+  molten.attackTimer -= dt;
+  if (molten.attackTimer <= 0) {
+    molten.mode = 'attack';
+    molten.attackAnim = 0.4;
+    return;
+  }
+
+  molten.moveTimer -= dt;
+  if (molten.moveTimer <= 0) {
+    const r = Math.random();
+    if (r < 0.30) molten.moveDir = -1;
+    else if (r < 0.60) molten.moveDir = 1;
+    else if (r < 0.90) molten.moveDir = 2;
+    else molten.moveDir = 0;
+    molten.moveTimer = 0.4 + Math.random() * 0.9;
+  }
+
+  const mspeed = 1.8;
+  if (molten.moveDir === -1) {
+    const nx = molten.x - mspeed * dt;
+    if (!isWallForEnemy(nx, molten.y)) molten.x = nx;
+  } else if (molten.moveDir === 1) {
+    const nx = molten.x + mspeed * dt;
+    if (!isWallForEnemy(nx, molten.y)) molten.x = nx;
+  } else if (molten.moveDir === 2) {
+    const dx = player.x - molten.x, dy = player.y - molten.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const nx = molten.x - (dx/d) * mspeed * dt;
+    const ny = molten.y - (dy/d) * mspeed * dt;
+    if (!isWallForEnemy(nx, molten.y)) molten.x = nx;
+    if (!isWallForEnemy(molten.x, ny)) molten.y = ny;
+  }
+
+  for (let i = moltenCubes.length - 1; i >= 0; i--) {
+    const c = moltenCubes[i];
+    c.x += c.vx * dt;
+    c.y += c.vy * dt;
+    c.life -= dt;
+    if (isWallForEnemy(c.x, c.y) || c.life <= 0) { moltenCubes.splice(i, 1); continue; }
+    if (Math.hypot(c.x - player.x, c.y - player.y) < 0.6) {
+      player.hp = Math.max(0, player.hp - CUBE_DAMAGE);
+      player.shake = Math.max(player.shake, 0.5);
+      moltenCubes.splice(i, 1);
+    }
+  }
+}
+
+function smokePickNearPlayerSpot() {
+  for (let tries = 0; tries < 30; tries++) {
+    const ang = player.dir + (Math.random() - 0.5) * (FOV * 0.7);
+    const rad = 2.2 + Math.random() * 2.5;
+    const rx = player.x + Math.cos(ang) * rad;
+    const ry = player.y + Math.sin(ang) * rad;
+    if (isWallForEnemy(rx, ry)) continue;
+    if (!isInView(rx, ry, 0.1)) continue;
+    return {x: rx, y: ry};
+  }
+  const fx = player.x + Math.cos(player.dir) * 3.0;
+  const fy = player.y + Math.sin(player.dir) * 3.0;
+  if (!isWallForEnemy(fx, fy)) return {x: fx, y: fy};
+  return {x: player.x + 2, y: player.y};
+}
+
+function smokePickFarCubeSpot() {
+  for (let tries = 0; tries < 40; tries++) {
+    const rx = 3 + Math.random() * 25;
+    const ry = 11 + Math.random() * 8;
+    if (isWallForEnemy(rx, ry)) continue;
+    const d = Math.hypot(rx - player.x, ry - player.y);
+    if (d < 3.0) continue;
+    if (!isInView(rx, ry, 0.05)) continue;
+    return {x: rx, y: ry};
+  }
+  const ang = player.dir;
+  const rx = player.x + Math.cos(ang) * 5;
+  const ry = player.y + Math.sin(ang) * 5;
+  if (!isWallForEnemy(rx, ry)) return {x: rx, y: ry};
+  return {x: player.x + 4, y: player.y};
+}
+
+function updateSmoke(dt) {
+  if (bossPhase !== 'f2' || !smoke.alive) return;
+
+  smoke.fade = 0.7;
+
+  const dNow = Math.hypot(player.x - smoke.x, player.y - smoke.y);
+  if (dNow < SMOKE_TOUCH_RANGE) {
+    player.hp = Math.max(0, player.hp - SMOKE_TOUCH_DPS * dt);
+    player.shake = Math.max(player.shake, 0.15);
+  }
+
+  if (smokeNearPortal.active) {
+    smokeNearPortal.life -= dt;
+    if (smokeNearPortal.life <= 0) smokeNearPortal.active = false;
+  }
+  for (let i = smokeFarPortals.length - 1; i >= 0; i--) {
+    smokeFarPortals[i].life -= dt;
+    if (smokeFarPortals[i].life <= 0) smokeFarPortals.splice(i, 1);
+  }
+
+  if (smoke.mode === 'atak') {
+    smoke.atakTimer -= dt;
+    const dx = player.x - smoke.x, dy = player.y - smoke.y;
+    const dd = Math.hypot(dx, dy) || 1;
+    const step = 4.0 * dt;
+    const nx = smoke.x + (dx/dd) * step;
+    const ny = smoke.y + (dy/dd) * step;
+    if (!isWallForEnemy(nx, smoke.y)) smoke.x = nx;
+    if (!isWallForEnemy(smoke.x, ny)) smoke.y = ny;
+    if (Math.hypot(player.x - smoke.x, player.y - smoke.y) < SMOKE_TOUCH_RANGE) {
+      player.hp = Math.max(0, player.hp - SMOKE_TOUCH_DPS * dt);
+      player.shake = Math.max(player.shake, 0.15);
+    }
+    if (smoke.atakTimer <= 0) {
+      smoke.mode = 'idle';
+      smokeEl.src = 'smokemolten.gif';
+      smokeEl.dataset.src = 'smokemolten.gif';
+      smoke.teleportTimer = SMOKE_TELEPORT_INTERVAL_MIN + Math.random() * (SMOKE_TELEPORT_INTERVAL_MAX - SMOKE_TELEPORT_INTERVAL_MIN);
+    }
+    return;
+  }
+
+  smoke.teleportTimer -= dt;
+  if (smoke.teleportTimer <= 0 && smoke.mode === 'idle') {
+    const spot = smokePickNearPlayerSpot();
+    smokeNearPortal.active = true;
+    smokeNearPortal.x = spot.x;
+    smokeNearPortal.y = spot.y;
+    smokeNearPortal.life = SMOKE_NEAR_PORTAL_LIFE;
+    smokeNearPortal.maxLife = SMOKE_NEAR_PORTAL_LIFE;
+    smoke.x = spot.x;
+    smoke.y = spot.y;
+    smokeEl.style.display = 'none';
+    smoke.mode = 'atak';
+    smoke.atakTimer = SMOKE_ATAKING_DURATION;
+    smokeEl.src = 'smokemoltenataking.gif';
+    smokeEl.dataset.src = 'smokemoltenataking.gif';
+    smokeEl.style.display = 'block';
+    return;
+  }
+
+  smoke.farCubeTimer -= dt;
+  if (smoke.farCubeTimer <= 0) {
+    const spot = smokePickFarCubeSpot();
+    smokeFarPortals.push({
+      x: spot.x, y: spot.y,
+      life: SMOKE_FAR_PORTAL_LIFE,
+      maxLife: SMOKE_FAR_PORTAL_LIFE,
+      hasCube: true
+    });
+    const dx = player.x - spot.x, dy = player.y - spot.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const cubSpeed = 3.5;
+    smokeCubes.push({
+      x: spot.x, y: spot.y,
+      vx: dx/d * cubSpeed,
+      vy: dy/d * cubSpeed,
+      life: 6.0,
+      size: SMOKE_CUBE_SIZE_FAR
+    });
+    smoke.farCubeTimer = SMOKE_FAR_CUBE_MIN + Math.random() * (SMOKE_FAR_CUBE_MAX - SMOKE_FAR_CUBE_MIN);
+  }
+
+  if (smoke.mode === 'idle') {
+    const dx = player.x - smoke.x, dy = player.y - smoke.y;
+    const d = Math.hypot(dx, dy) || 1;
+    if (d > 1.2) {
+      const nx = smoke.x + (dx/d) * SMOKE_CHASE_SPEED * dt;
+      const ny = smoke.y + (dy/d) * SMOKE_CHASE_SPEED * dt;
+      if (!isWallForEnemy(nx, smoke.y)) smoke.x = nx;
+      if (!isWallForEnemy(smoke.x, ny)) smoke.y = ny;
+    }
+  }
+
+  for (let i = smokeCubes.length - 1; i >= 0; i--) {
+    const c = smokeCubes[i];
+    c.x += c.vx * dt;
+    c.y += c.vy * dt;
+    c.life -= dt;
+    if (c.life <= 0 || isWallForEnemy(c.x, c.y)) { smokeCubes.splice(i, 1); continue; }
+    if (Math.hypot(c.x - player.x, c.y - player.y) < 0.8) {
+      player.hp = Math.max(0, player.hp - SMOKE_CUBE_DAMAGE);
+      player.shake = Math.max(player.shake, 0.4);
+      smokeCubes.splice(i, 1);
+    }
+  }
+}
+
+// ============ АКТ 4 ============
+function startSaimonRetreat() {
+  saimon.state = 'retreat';
+  saimon.retreatTimer = 0.5;
+  saimon.retreatDir = Math.random() < 0.5 ? -1 : 1;
+}
+
+function saimonStartVoda() {
+  voda.active = true;
+  voda.x = 8.0;
+  voda.y = 6.5;
+  voda.mode = 'idle';
+}
+
+function saimonTransitionToF2() {
+  act4Phase = 'f2_transition';
+  voda.active = true;
+  voda.mode = 'moveToBoss';
+}
+
+function startVorotPhase() {
+  act4Phase = 'f2';
+  saimon.alive = false;
+  saimonEl.style.display = 'none';
+  saimonHandEl.style.display = 'none';
+  vorot.alive = true;
+  vorot.hp = VOROT_MAX_HP;
+  vorot.maxHp = VOROT_MAX_HP;
+  vorot.x = saimon.x;
+  vorot.y = saimon.y;
+  vorot.vodovorotTimer = 1.0;
+  vorot.badvodovorotTimer = 1.5;
+  vorot._wanderAngle = Math.random() * Math.PI * 2;
+  vorot._wanderTimer = 0.5 + Math.random() * 0.8;
+  vorotEl.src = 'vorotsaimon.gif';
+  vorotEl.dataset.src = 'vorotsaimon.gif';
+  vorotEl.style.display = 'block';
+  vorotEl.style.opacity = '0.6';
+  vodovorots.length = 0;
+  badvodovorots.length = 0;
+  waterOverlay = 1.0;
+}
+
+function vorotDie() {
+  act4Phase = 'dead';
+  vorot.alive = false;
+  vorotEl.style.display = 'none';
+  vodovorots.length = 0;
+  badvodovorots.length = 0;
+  player.shake = Math.max(player.shake, 1.0);
+}
+
+function vorotFleeStep(dt) {
+  if (vorot._wanderTimer === undefined) {
+    vorot._wanderTimer = 0;
+    vorot._wanderAngle = Math.random() * Math.PI * 2;
+  }
+
+  vorot._wanderTimer -= dt;
+  if (vorot._wanderTimer <= 0) {
+    vorot._wanderAngle = Math.random() * Math.PI * 2;
+    vorot._wanderTimer = 0.6 + Math.random() * 0.8;
+  }
+
+  let mx = Math.cos(vorot._wanderAngle);
+  let my = Math.sin(vorot._wanderAngle);
+
+  // Тяга к центру комнаты (8, 7.5), растёт с расстоянием
+  const cx = 8.0, cy = 7.5;
+  const toCenterX = cx - vorot.x;
+  const toCenterY = cy - vorot.y;
+  const centerDist = Math.hypot(toCenterX, toCenterY);
+  if (centerDist > 0.1) {
+    const centerWeight = Math.min(1.0, centerDist / 5.0); // чем дальше — тем сильнее
+    mx += (toCenterX / centerDist) * centerWeight * 1.2;
+    my += (toCenterY / centerDist) * centerWeight * 1.2;
+  }
+
+  // Если впереди стена — поворачиваем вбок (без отскока)
+  const step = VOROT_FLEE_SPEED * dt;
+  let nx = vorot.x + mx * step;
+  let ny = vorot.y + my * step;
+
+  if (isWallForEnemy(nx, ny)) {
+    // Пробуем вбок (случайно влево или вправо)
+    const px = -my, py = mx;
+    const side = Math.random() < 0.5 ? 1 : -1;
+    nx = vorot.x + px * side * step;
+    ny = vorot.y + py * side * step;
+
+    if (isWallForEnemy(nx, ny)) {
+      // Вбок тоже стена — меняем угол и стоим
+      vorot._wanderAngle = Math.random() * Math.PI * 2;
+      vorot._wanderTimer = 0.4;
+      nx = vorot.x;
+      ny = vorot.y;
+    }
+  }
+
+  vorot.x = nx;
+  vorot.y = ny;
+  vorot.facing = Math.atan2(player.y - vorot.y, player.x - vorot.x);
+}
+
+function spawnVodovorot() {
+  vodovorots.push({ x: vorot.x, y: vorot.y, life: VODOVOROT_LIFE });
+}
+
+function spawnBadvodovorot() {
+  const ang = Math.random() * Math.PI * 2;
+  const rad = 1.5 + Math.random() * 1.0;
+  let bx = vorot.x + Math.cos(ang) * rad;
+  let by = vorot.y + Math.sin(ang) * rad;
+  if (isWallForEnemy(bx, by)) { bx = vorot.x; by = vorot.y; }
+  badvodovorots.push({ x: bx, y: by, life: BADVODOROT_LIFE });
+}
+
+function updateSaimon(dt) {
+  if (act4Phase === 'talk') {
+    saimonTalkTimer += dt;
+    const totalDur = 10.0;
+    const perLine = totalDur / SAIMON_LINES.length;
+    const idx = Math.min(SAIMON_LINES.length - 1, Math.floor(saimonTalkTimer / perLine));
+    saimonTalkIdx = idx;
+    if (saimonTalkTimer >= totalDur) {
+      act4Phase = 'f1';
+      saimonTalkTimer = 0;
+    }
+    return;
+  }
+
+  if (act4Phase === 'f1' && saimon.alive) {
+    const dxP = player.x - saimon.x, dyP = player.y - saimon.y;
+    const distP = Math.hypot(dxP, dyP) || 1;
+
+    saimon.handCooldown -= dt;
+    if (saimon.handAttackAnim > 0) saimon.handAttackAnim -= dt;
+
+    if (saimon.handCooldown <= 0 && distP < SAIMON_HAND_REACH && saimon.state !== 'retreat') {
+      saimon.handCooldown = SAIMON_HAND_COOLDOWN;
+      saimon.handAttackAnim = 0.6;
+      if (distP < SAIMON_HAND_ATTACK_RANGE + 0.6) {
+        player.hp = Math.max(0, player.hp - SAIMON_HAND_DAMAGE);
+        player.shake = Math.max(player.shake, 0.5);
+      }
+    }
+
+    if (saimon.state === 'retreat') {
+      saimon.retreatTimer -= dt;
+      const bx = -dxP / distP;
+      const by = -dyP / distP;
+      const px = -by, py = bx;
+      const mvx = bx + px * saimon.retreatDir * 0.7;
+      const mvy = by + py * saimon.retreatDir * 0.7;
+      const mlen = Math.hypot(mvx, mvy) || 1;
+      const nx = saimon.x + (mvx/mlen) * SAIMON_RETREAT_SPEED * dt;
+      const ny = saimon.y + (mvy/mlen) * SAIMON_RETREAT_SPEED * dt;
+      if (!isWallForEnemy(nx, saimon.y)) saimon.x = nx;
+      if (!isWallForEnemy(saimon.x, ny)) saimon.y = ny;
+      if (saimon.retreatTimer <= 0) saimon.state = 'chase';
+    } else {
+      if (distP > 1.2) {
+        const nx = saimon.x + (dxP/distP) * SAIMON_CHASE_SPEED * dt;
+        const ny = saimon.y + (dyP/distP) * SAIMON_CHASE_SPEED * dt;
+        let moved = false;
+        if (!isWallForEnemy(nx, saimon.y)) { saimon.x = nx; moved = true; }
+        if (!isWallForEnemy(saimon.x, ny)) { saimon.y = ny; moved = true; }
+        if (!moved) {
+          const px = -dyP / distP;
+          const py = dxP / distP;
+          if (!saimon._sideSign || Math.random() < 0.02) {
+            saimon._sideSign = Math.random() < 0.5 ? -1 : 1;
+          }
+          const sx = saimon.x + px * saimon._sideSign * SAIMON_SIDE_SPEED * dt;
+          const sy = saimon.y + py * saimon._sideSign * SAIMON_SIDE_SPEED * dt;
+          if (!isWallForEnemy(sx, saimon.y)) saimon.x = sx;
+          if (!isWallForEnemy(saimon.x, sy)) saimon.y = sy;
+        }
+      }
+    }
+    saimon.facing = Math.atan2(dyP, dxP);
+
+    if (saimon.hp <= 150 && !voda.active) {
+      saimonStartVoda();
+    }
+
+    if (saimon.hp <= 0) {
+      act4Phase = 'hurt_talk';
+      saimonTalkTimer = 0;
+      if (!voda.active) {
+        voda.active = true;
+        voda.x = 8.0; voda.y = 6.5;
+      }
+      voda.mode = 'moveToBoss';
+      saimonHandEl.style.display = 'none';
+    }
+    return;
+  }
+
+  if (act4Phase === 'hurt_talk') {
+  saimonTalkTimer += dt;
+  if (voda.active && voda.mode === 'moveToBoss') {
+    const dx = saimon.x - voda.x, dy = saimon.y - voda.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 0.4) {
+      const vspd = 2.0;
+      voda.x += (dx/d) * vspd * dt;
+      voda.y += (dy/d) * vspd * dt;
+    } else {
+      // Достигла босса — сразу удаляем
+      voda.active = false;
+      vodaEl.style.display = 'none';
+      vodaEl.remove();
+      saimonEl.src = 'saimonhurt.gif';
+      saimonEl.dataset.src = 'saimonhurt.gif';
+      saimonTransitionToF2();
+    }
+  }
+  return;
+}
+
+  if (act4Phase === 'f2_transition') {
+    waterOverlay = Math.min(1.0, waterOverlay + dt * 0.5);
+    if (waterOverlay >= 1.0) {
+      saimonEl.style.display = 'none';
+      startVorotPhase();
+    }
+    return;
+  }
+
+  if (act4Phase === 'f2' && vorot.alive) {
+    vorotFleeStep(dt);
+
+    vorot.vodovorotTimer -= dt;
+    if (vorot.vodovorotTimer <= 0) {
+      spawnVodovorot();
+      vorot.vodovorotTimer = VOROT_SPAWN_MIN + Math.random() * (VOROT_SPAWN_MAX - VOROT_SPAWN_MIN);
+    }
+    vorot.badvodovorotTimer -= dt;
+    if (vorot.badvodovorotTimer <= 0) {
+      spawnBadvodovorot();
+      vorot.badvodovorotTimer = 2.0 + Math.random() * 1.0;
+    }
+
+    for (let i = vodovorots.length - 1; i >= 0; i--) {
+      const v = vodovorots[i];
+      v.life -= dt;
+      if (v.life <= 0) { vodovorots.splice(i, 1); continue; }
+      if (Math.hypot(v.x - player.x, v.y - player.y) < VODOVOROT_TOUCH_RANGE) {
+        player.hp = Math.max(0, player.hp - VODOVOROT_DAMAGE);
+        player.frozenTimer = Math.max(player.frozenTimer, VODOVOROT_FREEZE);
+        player.shake = Math.max(player.shake, 0.5);
+        vodovorots.splice(i, 1);
+      }
+    }
+    for (let i = badvodovorots.length - 1; i >= 0; i--) {
+      const b = badvodovorots[i];
+      b.life -= dt;
+      if (b.life <= 0) { badvodovorots.splice(i, 1); continue; }
+      const dx = b.x - player.x, dy = b.y - player.y;
+      const d = Math.hypot(dx, dy);
+      if (d < BADVODOROT_PULL_RANGE && d > 0.01) {
+        const pull = BADVODOROT_PULL_FORCE * dt;
+        const nx = player.x + (dx/d) * pull;
+        const ny = player.y + (dy/d) * pull;
+        if (!isWall(nx, player.y)) player.x = nx;
+        if (!isWall(player.x, ny)) player.y = ny;
+      }
+      if (d < VODOVOROT_TOUCH_RANGE) {
+        player.hp = Math.max(0, player.hp - BADVODOROT_DAMAGE);
+        player.shake = Math.max(player.shake, 0.8);
+        badvodovorots.splice(i, 1);
+      }
+    }
+    return;
+  }
+}
+
+let last = performance.now();
+function update(dt){
+  if (transitionActive) {
+    transitionTimer -= dt;
+    if (transitionTimer <= 0) {
+      transitionActive = false;
+      if (pendingAct === 2) startAct2();
+      else if (pendingAct === 3) startAct3();
+      else if (pendingAct === 4) startAct4();
+      pendingAct = 0;
+    }
+    return;
+  }
+
+  if (player.frozenTimer > 0) player.frozenTimer -= dt;
+
+  let fwd = -joy.vy, str = joy.vx;
+  const mag = Math.hypot(fwd, str);
+  if (mag > 1){ fwd/=mag; str/=mag; }
+
+  let speed = 3.2;
+  if ((act2 || act3 || act4) && player.dashTimer > 0) {
+    speed = player.dashSpeed;
+    player.dashTimer -= dt;
+    if (player.dashTimer < 0) player.dashTimer = 0;
+  }
+  if (player.frozenTimer > 0) { fwd = 0; str = 0; }
+
+  const fx = Math.cos(player.dir), fy = Math.sin(player.dir);
+  const sx = -fy, sy = fx;
+  const nx = player.x + (fx*fwd + sx*str) * speed * dt;
+  const ny = player.y + (fy*fwd + sy*str) * speed * dt;
+  if (!isWall(nx, player.y)) player.x = nx;
+  if (!isWall(player.x, ny)) player.y = ny;
+  player.moving = Math.hypot(fwd, str);
+  player.bob += dt * player.moving * 12;
+
+  if (player.dashTimer <= 0 && player.dashSpeed > 0) {
+    player.handKick *= Math.exp(-12 * dt);
+    if (Math.abs(player.handKick) < 0.4) player.handKick = 0;
+  }
+  if (player.fistAnim > 0) player.fistAnim -= dt;
+  if (player.dashAnim > 0) player.dashAnim -= dt;
+  if (player.gainTextTimer > 0) player.gainTextTimer -= dt;
+  if (player.shake > 0) player.shake *= Math.exp(-2.5 * dt);
+
+  if (act2) {
+    if (player.cameraRolling && boss.alive) player.cameraRoll += dt * 2.0;
+    else if (!boss.alive && !player.cameraRolling) {
+      player.cameraRoll *= Math.exp(-5 * dt);
+      if (Math.abs(player.cameraRoll) < 0.001) { player.cameraRoll = 0; player.cameraRolling = false; }
+    }
+    if (player.x > 18 && !bossRoomEntered && boss.alive) {
+      bossRoomEntered = true;
+      dialogActive = true;
+      dialogTimer = 2.0;
+      player.cameraRolling = true;
+    }
+    if (dialogTimer > 0) dialogTimer -= dt;
+
+    if (boss.alive) {
+      boss.x += boss.dir * boss.speed * dt;
+      if (boss.x > 37) { boss.x = 37; boss.dir = -1; }
+      if (boss.x < 19) { boss.x = 19; boss.dir = 1; }
+      const distToPlayer = Math.hypot(player.x - boss.x, player.y - boss.y);
+      if (distToPlayer < 2.5) {
+        player.hp = Math.max(0, player.hp - 15 * dt);
+        player.shake = Math.max(player.shake, 0.2);
+      }
+    }
+    if (!boss.alive) {
+      let anyEnemy = false;
+      for (const e of enemies) if (e.alive) { anyEnemy = true; break; }
+      if (!anyEnemy) startAct3Transition();
+    }
+    if (ant.active) updateAnt(dt, boss);
+    else if (ant.cooldown > 0) ant.cooldown -= dt;
+  }
+
+  if (act3) {
+    if (!doorOpened) {
+      let anyEnemy = false;
+      for (const e of enemies) if (e.alive) { anyEnemy = true; break; }
+      if (!anyEnemy) {
+        doorOpened = true;
+        for (let yy = 0; yy < MAP_H; yy++){
+          for (let xx = 0; xx < MAP_W; xx++){
+            if (map[yy][xx] === 3) map[yy][xx] = 0;
+          }
+        }
+        player.shake = Math.max(player.shake, 1.0);
+      }
+    } else {
+      if (!bossRoomEntered && player.y > 10) bossRoomEntered = true;
+    }
+
+    if (bossPhase === 'f1') updateMolten(dt);
+    else if (bossPhase === 'hurt') {
+      hurtTalkTimer += dt;
+      const totalDur = 10.0;
+      const perLine = totalDur / HURT_LINES.length;
+      const idx = Math.min(HURT_LINES.length - 1, Math.floor(hurtTalkTimer / perLine));
+      hurtTalkIdx = idx;
+      if (hurtTalkTimer >= totalDur + 2.0) startOuterPhase();
+    } else if (bossPhase === 'outer') {
+      outerTimer -= dt;
+      player.shake = Math.max(player.shake, 1.8);
+      if (outerTimer <= 0) startPhase2();
+    } else if (bossPhase === 'f2') updateSmoke(dt);
+
+    if (ant.active) {
+      const target = bossPhase === 'f2' ? smoke : molten;
+      const alive = bossPhase === 'f2' ? smoke.alive : (bossPhase === 'f1' && molten.alive);
+      updateAnt(dt, alive ? target : null);
+    } else if (ant.cooldown > 0) ant.cooldown -= dt;
+  }
+
+  if (act4) {
+    if (!doorOpened) {
+      let anyEnemy = false;
+      for (const e of enemies) if (e.alive) { anyEnemy = true; break; }
+      if (!anyEnemy) {
+        doorOpened = true;
+        for (let yy = 0; yy < MAP_H; yy++){
+          for (let xx = 0; xx < MAP_W; xx++){
+            if (map[yy][xx] === 3) map[yy][xx] = 0;
+          }
+        }
+        player.shake = Math.max(player.shake, 1.0);
+      }
+    } else {
+      if (!bossRoomEntered && player.y > 6) {
+        bossRoomEntered = true;
+        act4Phase = 'talk';
+        saimonTalkTimer = 0;
+        saimonTalkIdx = 0;
+      }
+    }
+
+    if (act4Phase === 'talk' || act4Phase === 'f1' || act4Phase === 'hurt_talk' || act4Phase === 'f2_transition' || act4Phase === 'f2') {
+      updateSaimon(dt);
+    }
+
+    if (ant.active) {
+      let target = null;
+      if (act4Phase === 'f1' && saimon.alive) target = saimon;
+      if (act4Phase === 'f2' && vorot.alive) target = vorot;
+      updateAnt(dt, target);
+    } else if (ant.cooldown > 0) ant.cooldown -= dt;
+  }
+
+  updateLines(dt);
+
+  for (const e of enemies){
+    if (!e.alive) continue;
+    if (e.hitFlash > 0) e.hitFlash -= dt;
+    const dx = player.x - e.x, dy = player.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    const angToPlayer = Math.atan2(dy, dx);
+    let diff = angToPlayer - e.facing;
+    while (diff >  Math.PI) diff -= 2*Math.PI;
+    while (diff < -Math.PI) diff += 2*Math.PI;
+    e.facing += diff * Math.min(1, dt * 2.5);
+    if (e.atkCd > 0) e.atkCd -= dt;
+    if (e.atkTime > 0){
+      e.atkTime -= dt;
+      if (!e.didHit && e.atkTime < ENEMY_ATTACK_DURATION * 0.6){
+        const curD = Math.hypot(player.x - e.x, player.y - e.y);
+        if (curD < ENEMY_ATTACK_RANGE + ENEMY_HIT_TOLERANCE) player.hp = Math.max(0, player.hp - ENEMY_DAMAGE);
+        e.didHit = true;
+      }
+      if (e.atkTime <= 0) e.didHit = false;
+    }
+    if (dist < ENEMY_ATTACK_RANGE && e.atkCd <= 0 && e.atkTime <= 0){
+      e.atkTime = ENEMY_ATTACK_DURATION;
+      e.atkCd = ENEMY_ATTACK_DURATION + 0.8;
+      e.didHit = false;
+    }
+    if (e.atkTime <= 0 && dist > 0.7 && dist < 12){
+      const spd = 0.55;
+      const nxe = e.x + (dx/dist) * spd * dt;
+      const nye = e.y + (dy/dist) * spd * dt;
+      if (!isWallForEnemy(nxe, e.y)) e.x = nxe;
+      if (!isWallForEnemy(e.x, nye)) e.y = nye;
+    }
+  }
+
+  checkDoor();
+}
+
+function updateAnt(dt, target) {
+  ant.timer -= dt;
+  if (ant.timer <= 0) { ant.active = false; ant.cooldown = ANT_COOLDOWN_MAX; antEl.style.display = 'none'; return; }
+  if (!target) {
+    const adx = player.x - ant.x, ady = player.y - ant.y;
+    const adist = Math.hypot(adx, ady);
+    if (adist > 0.5) {
+      ant.x += (adx/adist) * 4.0 * dt;
+      ant.y += (ady/adist) * 4.0 * dt;
+    }
+    return;
+  }
+  const adx = target.x - ant.x, ady = target.y - ant.y;
+  const adist = Math.hypot(adx, ady);
+  if (adist > 4.0) {
+    ant.x += (adx/adist) * 4.0 * dt;
+    ant.y += (ady/adist) * 4.0 * dt;
+    if (isWallForEnemy(ant.x, ant.y)) { ant.x -= (adx/adist)*4.0*dt; ant.y -= (ady/adist)*4.0*dt; }
+    ant.facing = Math.atan2(ady, adx);
+  } else if (adist > 0.1 && ant.attackAnim <= 0) ant.facing = Math.atan2(ady, adx);
+  if (ant.attackAnim > 0) ant.attackAnim -= dt;
+  else {
+    ant.attackCd -= dt;
+    if (ant.attackCd <= 0 && adist < 20) {
+      ant.attackAnim = 1.0;
+      ant.attackCd = 4.0;
+      if (act2 && boss.alive) { boss.hp = Math.max(0, boss.hp - 15); if (boss.hp <= 0) boss.alive = false; }
+      else if (act3 && bossPhase === 'f1' && molten.alive) { molten.hp = Math.max(0, molten.hp - 15); if (molten.hp <= 0) moltenDie(); }
+      else if (act3 && bossPhase === 'f2' && smoke.alive) { smoke.hp = Math.max(0, smoke.hp - 15); if (smoke.hp <= 0) smokeDie(); }
+      else if (act4 && act4Phase === 'f1' && saimon.alive) { saimon.hp = Math.max(0, saimon.hp - 20); }
+      else if (act4 && act4Phase === 'f2' && vorot.alive) { vorot.hp = Math.max(0, vorot.hp - 20); if (vorot.hp <= 0) vorotDie(); }
+    }
+  }
+}
+
+function updateLines(dt) {
+  for (let i = activeLines.length - 1; i >= 0; i--) {
+    const line = activeLines[i];
+    line.timer += dt;
+    if (line.timer > 0.8) { activeLines.splice(i, 1); continue; }
+    if (line.timer > 0.05) {
+      for (let e of enemies) {
+        if (e.alive && !line.hitEnemies.has(e)) {
+          let hit = false;
+          if (line.type === 1 || line.type === 2) {
+            const d = distToSegment(e.x, e.y, line.L.x, line.L.y, line.R.x, line.R.y);
+            if (d < 0.4) hit = true;
+          } else {
+            const pt = line.type === 3 ? line.L : line.R;
+            const d = Math.hypot(e.x - pt.x, e.y - pt.y);
+            if (d < 0.4) hit = true;
+          }
+          if (hit) {
+            e.hp -= 1;
+            e.hitFlash = 0.35;
+            line.hitEnemies.add(e);
+            if (e.hp <= 0) {
+              e.alive = false;
+              const gain = 1 + Math.floor(Math.random() * 200);
+              player.hp = Math.min(player.maxHp, player.hp + gain);
+              player.gainText = '+' + gain;
+              player.gainTextTimer = 1.5;
+            }
+          }
+        }
+      }
+      if (act2 && boss.alive) {
+        let hitBoss = false;
+        if (line.type === 1 || line.type === 2) {
+          if (distToSegment(boss.x, boss.y, line.L.x, line.L.y, line.R.x, line.R.y) < 1.2) hitBoss = true;
+        } else {
+          const pt = line.type === 3 ? line.L : line.R;
+          if (Math.hypot(boss.x - pt.x, boss.y - pt.y) < 1.2) hitBoss = true;
+        }
+        if (hitBoss && line.timer < 0.2) {
+          boss.hp -= BOSS_HIT_DAMAGE;
+          player.shake = Math.max(player.shake, 0.4);
+          if (boss.hp <= 0) boss.alive = false;
+        }
+      }
+      if (act3 && bossPhase === 'f1' && molten.alive && molten.mode !== 'talk' && molten.mode !== 'teleportOut' && molten.mode !== 'teleportIn' && molten.mode !== 'dead' && molten.fade > 0.3) {
+        let hitBoss = false;
+        if (line.type === 1 || line.type === 2) {
+          if (distToSegment(molten.x, molten.y, line.L.x, line.L.y, line.R.x, line.R.y) < 1.0) hitBoss = true;
+        } else {
+          const pt = line.type === 3 ? line.L : line.R;
+          if (Math.hypot(molten.x - pt.x, molten.y - pt.y) < 1.0) hitBoss = true;
+        }
+        if (hitBoss && !line.hitEnemies.has(molten)) {
+          line.hitEnemies.add(molten);
+          molten.hp -= MOLTEN_HIT_DAMAGE;
+          player.shake = Math.max(player.shake, 0.4);
+          if (molten.hp <= 0) moltenDie();
+        }
+      }
+      if (act3 && bossPhase === 'f2' && smoke.alive) {
+        let hitBoss = false;
+        if (line.type === 1 || line.type === 2) {
+          if (distToSegment(smoke.x, smoke.y, line.L.x, line.L.y, line.R.x, line.R.y) < 1.0) hitBoss = true;
+        } else {
+          const pt = line.type === 3 ? line.L : line.R;
+          if (Math.hypot(smoke.x - pt.x, smoke.y - pt.y) < 1.0) hitBoss = true;
+        }
+        if (hitBoss && !line.hitEnemies.has(smoke)) {
+          line.hitEnemies.add(smoke);
+          smoke.hp -= SMOKE_HIT_DAMAGE;
+          player.shake = Math.max(player.shake, 0.4);
+          if (smoke.hp <= 0) smokeDie();
+        }
+      }
+      if (act4 && act4Phase === 'f1' && saimon.alive) {
+        let hitBoss = false;
+        if (line.type === 1 || line.type === 2) {
+          if (distToSegment(saimon.x, saimon.y, line.L.x, line.L.y, line.R.x, line.R.y) < 1.0) hitBoss = true;
+        } else {
+          const pt = line.type === 3 ? line.L : line.R;
+          if (Math.hypot(saimon.x - pt.x, saimon.y - pt.y) < 1.0) hitBoss = true;
+        }
+        if (hitBoss && !line.hitEnemies.has(saimon)) {
+          line.hitEnemies.add(saimon);
+          saimon.hp -= SAIMON_HIT_DAMAGE;
+          player.shake = Math.max(player.shake, 0.4);
+          if (saimon.hp <= 0) saimon.hp = 0;
+        }
+      }
+      if (act4 && act4Phase === 'f2' && vorot.alive) {
+        let hitBoss = false;
+        if (line.type === 1 || line.type === 2) {
+          if (distToSegment(vorot.x, vorot.y, line.L.x, line.L.y, line.R.x, line.R.y) < 1.0) hitBoss = true;
+        } else {
+          const pt = line.type === 3 ? line.L : line.R;
+          if (Math.hypot(vorot.x - pt.x, vorot.y - pt.y) < 1.0) hitBoss = true;
+        }
+        if (hitBoss && !line.hitEnemies.has(vorot)) {
+          line.hitEnemies.add(vorot);
+          vorot.hp -= VOROT_HIT_DAMAGE;
+          player.shake = Math.max(player.shake, 0.4);
+          if (vorot.hp <= 0) vorotDie();
+        }
+      }
+    }
+  }
+}
+
+function startAct3Transition() {
+  transitionActive = true;
+  transitionTimer = 1.5;
+  pendingAct = 3;
+  if (bossEl.parentNode) bossEl.style.display = 'none';
+  enemyEls.forEach(el => el.style.display = 'none');
+}
+function startAct1() {
+  act2 = false; act3 = false; act4 = false;
+  currentTheme = THEMES.act1;
+  bossPhase = 'f1';
+  doorOpened = false; bossRoomEntered = false;
+
+  player.hp = 100; player.maxHp = 100;
+  player.x = 2.5; player.y = 2.5;
+  player.dir = 0;
+  pitchPixels = 0; player.cameraRoll = 0; player.cameraRolling = false;
+  dialogActive = false; dialogTimer = 0;
+  player.frozenTimer = 0;
+  player.dashTimer = 0; player.fistAnim = 0; player.hookAnim = 0;
+
+  IMG_HAND_IDLE = 'rukabarta.gif'; IMG_HAND_DASH = 'krol.gif';
+
+  // Простая карта первого акта (коридор с врагами)
+  const mapStrings = [
+    "1111111111111111",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1000000000000001",
+    "1111111111111111"
+  ];
+  map = mapStrings.map(row => row.split('').map(Number));
+  MAP_W = map[0].length; MAP_H = map.length;
+
+  enemyEls.forEach(el => el.remove());
+  enemies.length = 0; enemyEls.length = 0;
+  [{x: 6.5, y: 2.5},{x: 10.5, y: 2.5}].forEach(pos => {
+    const e = { x: pos.x, y: pos.y, hp: 3, alive: true, facing: 0, atkCd: 0, atkTime: 0, didHit: false, hitFlash: 0 };
+    enemies.push(e);
+    const el = document.createElement('img');
+    el.className = 'enemy-img';
+    document.body.appendChild(el);
+    enemyEls.push(el);
+  });
+
+  if (bossEl.parentNode) bossEl.style.display = 'none';
+  if (moltenEl.parentNode) moltenEl.style.display = 'none';
+  if (smokeEl.parentNode) smokeEl.style.display = 'none';
+  if (saimonEl.parentNode) saimonEl.style.display = 'none';
+  if (saimonHandEl.parentNode) saimonHandEl.style.display = 'none';
+  if (vodaEl.parentNode) vodaEl.style.display = 'none';
+  if (vorotEl.parentNode) vorotEl.style.display = 'none';
+
+  ant.active = false; ant.cooldown = 0; ant.timer = 0;
+  if (antEl.parentNode) antEl.style.display = 'none';
+
+  activeLines.length = 0;
+}
+function startAct2() {
+  act2 = true; act3 = false; act4 = false; bossPhase = 'f1';
+  currentTheme = THEMES.act2;
+  doorOpened = false; bossRoomEntered = false;
+  player.hp = 100; player.maxHp = 100;
+  player.x = 1.5; player.y = 1.5; player.dir = 0;
+  pitchPixels = 0; player.cameraRoll = 0; player.cameraRolling = false;
+  dialogActive = false; dialogTimer = 0;
+  IMG_HAND_IDLE = 'rukabarta.gif'; IMG_HAND_DASH = 'krol.gif';
+  const mapStrings = [
+    "1111111111111111111311111111111111111111",
+    "1001000000010000000000000000000000000001",
+    "1000000100000001000000000000000000000001",
+    "1111111111111111111311111111111111111111"
+  ];
+  map = mapStrings.map(row => row.split('').map(Number));
+  MAP_W = map[0].length; MAP_H = map.length;
+  enemyEls.forEach(el => el.remove());
+  enemies.length = 0; enemyEls.length = 0;
+  [{x:4.5,y:1.5},{x:8.5,y:1.5},{x:14.5,y:1.5}].forEach(pos => {
+    const e = { x: pos.x, y: pos.y, hp: 3, alive: true, facing: 0, atkCd: 0, atkTime: 0, didHit: false, hitFlash: 0 };
+    enemies.push(e);
+    const el = document.createElement('img');
+    el.className = 'enemy-img';
+    document.body.appendChild(el);
+    enemyEls.push(el);
+  });
+  boss.alive = true; boss.hp = BOSS_MAX_HP; boss.maxHp = BOSS_MAX_HP;
+  boss.x = 28; boss.y = 1.5; boss.dir = 1;
+  bossEl.src = 'mobius.gif';
+  ant.active = false; ant.cooldown = 0; ant.timer = 0;
+  if (antEl.parentNode) antEl.style.display = 'none';
+  if (moltenEl.parentNode) moltenEl.style.display = 'none';
+  if (smokeEl.parentNode) smokeEl.style.display = 'none';
+  if (saimonEl.parentNode) saimonEl.style.display = 'none';
+  if (saimonHandEl.parentNode) saimonHandEl.style.display = 'none';
+  if (vodaEl.parentNode) vodaEl.style.display = 'none';
+  if (vorotEl.parentNode) vorotEl.style.display = 'none';
+}
+
+function startAct3() {
+  act2 = false; act3 = true; act4 = false;
+  currentTheme = THEMES.act3;
+  bossPhase = 'f1';
+  doorOpened = false; bossRoomEntered = false;
+
+  player.hp = 100; player.maxHp = 100;
+  player.x = 14.5; player.y = 5.0;
+  player.dir = -Math.PI/2;
+  pitchPixels = 0; player.cameraRoll = 0; player.cameraRolling = false;
+  dialogActive = false; dialogTimer = 0;
+  player.frozenTimer = 0;
+
+  IMG_HAND_IDLE = 'rukabarta.gif'; IMG_HAND_DASH = 'krol.gif';
+
+  map = MAP_ACT3.map(row => row.split('').map(Number));
+  MAP_W = map[0].length; MAP_H = map.length;
+
+  enemyEls.forEach(el => el.remove());
+  enemies.length = 0; enemyEls.length = 0;
+  [{x: 6.0, y: 4.0},{x: 14.5, y: 2.5},{x: 22.0, y: 5.0}].forEach(pos => {
+    const e = { x: pos.x, y: pos.y, hp: 3, alive: true, facing: 0, atkCd: 0, atkTime: 0, didHit: false, hitFlash: 0 };
+    enemies.push(e);
+    const el = document.createElement('img');
+    el.className = 'enemy-img';
+    document.body.appendChild(el);
+    enemyEls.push(el);
+  });
+
+  if (bossEl.parentNode) bossEl.style.display = 'none';
+
+  molten.alive = true;
+  molten.hp = MOLTEN_MAX_HP; molten.maxHp = MOLTEN_MAX_HP;
+  molten.x = 16.0; molten.y = 15.0; molten.dir = 1;
+  molten.mode = 'talk'; molten.talkTimer = 0; molten.talkIdx = 0;
+  molten.attackTimer = 3.0; molten.attackAnim = 0;
+  molten.teleportTimer = 4.5; molten.fade = 1.0;
+  molten.portal = 0; molten.portalStage = 0;
+  molten.moveTimer = 2.0; molten.moveDir = 0; molten.showBigCube = 0;
+  moltenCubes.length = 0;
+  moltenEl.src = 'molten.gif';
+  moltenEl.dataset.src = 'molten.gif';
+  moltenEl.style.display = 'none';
+
+  smoke.alive = false;
+  smokeEl.style.display = 'none';
+  smokeNearPortal.active = false;
+  smokeFarPortals.length = 0;
+  smokeCubes.length = 0;
+
+  if (saimonEl.parentNode) saimonEl.style.display = 'none';
+  if (saimonHandEl.parentNode) saimonHandEl.style.display = 'none';
+  if (vodaEl.parentNode) vodaEl.style.display = 'none';
+  if (vorotEl.parentNode) vorotEl.style.display = 'none';
+
+  ant.active = false; ant.cooldown = 0; ant.timer = 0;
+  if (antEl.parentNode) antEl.style.display = 'none';
+
+  activeLines.length = 0;
+}
+
+function startAct4() {
+  act2 = false; act3 = false; act4 = true;
+  currentTheme = THEMES.act4;
+  act4Phase = 'f1';
+  doorOpened = false; bossRoomEntered = false;
+
+  player.hp = 100; player.maxHp = 100;
+  player.x = 3.0; player.y = 3.0;
+  player.dir = Math.PI/2;
+  pitchPixels = 0; player.cameraRoll = 0; player.cameraRolling = false;
+  dialogActive = false; dialogTimer = 0;
+  player.frozenTimer = 0;
+
+  map = MAP_ACT4.map(row => row.split('').map(Number));
+  MAP_W = map[0].length; MAP_H = map.length;
+
+  enemyEls.forEach(el => el.remove());
+  enemies.length = 0; enemyEls.length = 0;
+  [{x: 4.0, y: 2.0},{x: 11.0, y: 3.5}].forEach(pos => {
+    const e = { x: pos.x, y: pos.y, hp: 3, alive: true, facing: 0, atkCd: 0, atkTime: 0, didHit: false, hitFlash: 0 };
+    enemies.push(e);
+    const el = document.createElement('img');
+    el.className = 'enemy-img';
+    document.body.appendChild(el);
+    enemyEls.push(el);
+  });
+
+  if (bossEl.parentNode) bossEl.style.display = 'none';
+  if (moltenEl.parentNode) moltenEl.style.display = 'none';
+  if (smokeEl.parentNode) smokeEl.style.display = 'none';
+
+  saimon.alive = true;
+  saimon.hp = SAIMON_MAX_HP;
+  saimon.maxHp = SAIMON_MAX_HP;
+  saimon.x = 8.0;
+  saimon.y = 7.5;
+  saimon.facing = 0;
+  saimon.state = 'idle';
+  saimon.retreatTimer = 0;
+  saimon.retreatDir = 0;
+  saimon.handCooldown = 0;
+  saimon.handAttackAnim = 0;
+  saimon._sideSign = 1;
+  saimonEl.src = 'saimon.gif';
+  saimonEl.dataset.src = 'saimon.gif';
+  saimonEl.style.display = 'none';
+
+  saimonHandEl.src = 'saimonchil.gif';
+  saimonHandEl.dataset.src = 'saimonchil.gif';
+  saimonHandEl.style.display = 'none';
+
+  voda.active = false;
+  vodaEl.src = 'badvodovorot.gif';
+  vodaEl.dataset.src = 'badvodovorot.gif';
+  vodaEl.style.display = 'none';
+
+  vorot.alive = false;
+  vorotEl.style.display = 'none';
+
+  vodovorots.length = 0;
+  badvodovorots.length = 0;
+  waterOverlay = 0;
+
+  saimonTalkTimer = 0;
+  saimonTalkIdx = 0;
+
+  ant.active = false; ant.cooldown = 0; ant.timer = 0;
+  if (antEl.parentNode) antEl.style.display = 'none';
+
+  activeLines.length = 0;
+}
+
+function checkDoor() {
+  if (doorOpened) return;
+  let anyEnemy = false;
+  for (const e of enemies) if (e.alive) { anyEnemy = true; break; }
+  if (anyEnemy) return;
+  doorOpened = true;
+  for (let yy = 0; yy < MAP_H; yy++){
+    for (let xx = 0; xx < MAP_W; xx++){
+      if (map[yy][xx] === 3) map[yy][xx] = 0;
+    }
+  }
+  player.shake = Math.max(player.shake, 1.0);
+}
+
+function castRay(px, py, angle){
+  const dx = Math.cos(angle), dy = Math.sin(angle);
+  let dist = 0;
+  while (dist < 40){
+    dist += 0.02;
+    const x = px + dx*dist, y = py + dy*dist;
+    const cx = Math.floor(x), cy = Math.floor(y);
+    if (cx<0||cy<0||cx>=MAP_W||cy>=MAP_H) return { dist, cell:1, side:0 };
+    const c = map[cy][cx];
+    if (c === 1 || c === 3 || c === 4){
+      const fracX = x - Math.floor(x), fracY = y - Math.floor(y);
+      const side = (fracX < 0.02 || fracX > 0.98) ? 1 : 0;
+      return { dist, cell: c, side };
+    }
+  }
+  return { dist: 40, cell: 0, side: 0 };
+}
+
+let handCurrent = 'rukabarta.gif';
+function updateHand(sx, sy){
+  let src = IMG_HAND_IDLE;
+  if (player.dashAnim > 0 && IMG_HAND_DASH) src = IMG_HAND_DASH;
+  if (handCurrent !== src && isLoaded(src)){
+    handEl.src = src;
+    handCurrent = src;
+  }
+  handEl.style.transform =
+    `translate(${(sx||0).toFixed(1)}px, ${(sy||0).toFixed(1)}px) ` +
+    `translateX(${player.handKick.toFixed(1)}px)`;
+
+  if (player.fistAnim > 0 && (act2 || act3 || act4) && isLoaded('atakabarta.gif')) {
+    handAttackEl.style.display = 'block';
+    handAttackEl.style.transform =
+      `translate(${(sx||0).toFixed(1)}px, ${(sy||0).toFixed(1)}px) ` +
+      `translateX(${player.handKick.toFixed(1)}px)`;
+  } else {
+    handAttackEl.style.display = 'none';
+  }
+}
+
+function drawWallStrip(i, colW, horizon, projScale, hit, corr){
+  const theme = currentTheme;
+  const wallH = getWallHeight(hit.cell);
+  const wallHpx = (wallH / Math.max(0.05, corr)) * projScale;
+  const floorY  = horizon + (EYE_H / Math.max(0.05, corr)) * projScale;
+  const topY    = floorY - wallHpx;
+
+  if (hit.cell !== 4) {
+    const ceilingY = topY;
+    const ceilingHeight = 1.0;
+    const ceilHpx = (ceilingHeight / Math.max(0.05, corr)) * projScale;
+    const cs = theme.ceilingShade;
+    const ceilShade = Math.max(2, 10 - corr * 2);
+    const r = Math.min(255, (cs[0] * ceilShade / 10) | 0);
+    const g = Math.min(255, (cs[1] * ceilShade / 10) | 0);
+    const b = Math.min(255, (cs[2] * ceilShade / 10) | 0);
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(i*colW, ceilingY - ceilHpx, colW+1, ceilHpx);
+    // тонкая линия на стыке
+    if (corr < 15) {
+      ctx.fillStyle = theme.fogColor;
+      ctx.fillRect(i*colW, ceilingY - 2, colW+1, 2);
+    }
+  }
+
+  if (hit.cell === 4){
+    const STRIPE_H = 2.0;
+    const numStripes = Math.ceil(wallH / STRIPE_H);
+    for (let s = 0; s < numStripes; s++){
+      const sBot = s * STRIPE_H;
+      const sTop = Math.min(wallH, (s+1) * STRIPE_H);
+      const sBotY = horizon + ((EYE_H - sBot) / Math.max(0.05, corr)) * projScale;
+      const sTopY = horizon + ((EYE_H - sTop) / Math.max(0.05, corr)) * projScale;
+      const stripeH = sBotY - sTopY;
+      const sideMul = hit.side === 1 ? 0.6 : 1.0;
+      const base = (s % 2 === 0) ? 70 : 25;
+      const shade = Math.max(10, base * sideMul - corr * 5);
+      // используем оттенки темы
+      if (s % 2 === 0) {
+        const wc = theme.wallSide0;
+        ctx.fillStyle = `rgb(${Math.min(255, (wc[0]*shade/70)|0)},${Math.min(255, (wc[1]*shade/70)|0)},${Math.min(255, (wc[2]*shade/70)|0)})`;
+      } else {
+        const wc = theme.wallSide1;
+        ctx.fillStyle = `rgb(${Math.min(255, (wc[0]*shade/25)|0)},${Math.min(255, (wc[1]*shade/25)|0)},${Math.min(255, (wc[2]*shade/25)|0)})`;
+      }
+      ctx.fillRect(i*colW, sTopY, colW+1, stripeH+0.5);
+    }
+  } else if (hit.cell === 3){
+    const dc = theme.doorColor;
+    const shade = Math.max(20, 100 - corr*6);
+    ctx.fillStyle = `rgb(${Math.min(255, (dc[0]*shade/100)|0)},${Math.min(255, (dc[1]*shade/100)|0)},${Math.min(255, (dc[2]*shade/100)|0)})`;
+    ctx.fillRect(i*colW, topY, colW+1, wallHpx);
+  } else {
+    const wc = hit.side === 1 ? theme.wallSide1 : theme.wallSide0;
+    const shade = Math.max(10, 70 - corr*6);
+    ctx.fillStyle = `rgb(${Math.min(255, (wc[0]*shade/70)|0)},${Math.min(255, (wc[1]*shade/70)|0)},${Math.min(255, (wc[2]*shade/70)|0)})`;
+    ctx.fillRect(i*colW, topY, colW+1, wallHpx);
+  }
+}
+
+function drawOuterWorld(horizon, projScale) {
+  if (!isLoaded('highouterversal.gif')) return;
+  const img = preloads['highouterversal.gif'];
+  const aspect = img.naturalWidth / img.naturalHeight;
+  const worldH = 6.0;
+  const pCenter = project(outerWorldX, outerWorldY, worldH / 2);
+  const pTop    = project(outerWorldX, outerWorldY, worldH);
+  const pBottom = project(outerWorldX, outerWorldY, 0);
+  if (pCenter && pTop && pBottom) {
+    const screenH = Math.abs(pBottom.y - pTop.y);
+    const screenW = screenH * aspect;
+    ctx.drawImage(img, pCenter.x - screenW / 2, pCenter.y - screenH / 2, screenW, screenH);
+  }
+}
+
+function drawTeleportCube(x, y, radiusWorld, alpha) {
+  const proj = project(x, y, 1.0);
+  if (!proj) return;
+  const dx = x - player.x, dy = y - player.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.01) return;
+  const baseR = (radiusWorld * 1.4 / Math.max(0.4, dist)) * (H * 0.9);
+  const grad = ctx.createRadialGradient(proj.x, proj.y, 0, proj.x, proj.y, baseR);
+  grad.addColorStop(0, `rgba(180,180,220,${0.75 * alpha})`);
+  grad.addColorStop(0.5, `rgba(100,100,150,${0.45 * alpha})`);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save();
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(proj.x, proj.y, baseR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  if (smokecubeImgEl.complete && smokecubeImgEl.naturalWidth > 0) {
+    const cubeH = (radiusWorld * 2.0 / Math.max(0.4, dist)) * (H * 0.9);
+    const asp = smokecubeImgEl.naturalWidth / smokecubeImgEl.naturalHeight;
+    const cubeW = cubeH * (asp > 0.1 ? asp : 1.0);
+    ctx.save();
+    ctx.globalAlpha = 0.7 * alpha;
+    ctx.drawImage(smokecubeImgEl, proj.x - cubeW/2, proj.y - cubeH/2, cubeW, cubeH);
+    ctx.restore();
+  }
+}
+
+// Вихри через DOM-элементы (для анимации GIF)
+function drawVortexDom(el, x, y, sizeWorld, alpha, colW, numRays, zBuffer, horizon, projScale) {
+  const dx = x - player.x;
+  const dy = y - player.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 0.3) { el.style.display = 'none'; return; }
+
+  let a = Math.atan2(dy, dx) - player.dir;
+  if (a > Math.PI) a -= Math.PI * 2;
+  else if (a < -Math.PI) a += Math.PI * 2;
+  if (Math.abs(a) > FOV / 2 + 0.5) { el.style.display = 'none'; return; }
+
+  const screenX = W / 2 + Math.tan(a) * (W / 2) / Math.tan(FOV / 2);
+  const colIdx = Math.floor(screenX / colW);
+  if (colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15) {
+    el.style.display = 'none';
+    return;
+  }
+
+  const screenY = horizon + (EYE_H - 1.0) / dist * projScale;
+  const hpx = (sizeWorld / dist) * projScale;
+  const wpx = hpx;
+
+  el.style.display = 'block';
+  el.style.left = (screenX - wpx / 2) + 'px';
+  el.style.top = (screenY - hpx / 2) + 'px';
+  el.style.width = wpx + 'px';
+  el.style.height = hpx + 'px';
+  el.style.zIndex = 250 - Math.min(100, Math.round(dist * 4));
+  el.style.filter = `opacity(${alpha})`;
+}
+
+function drawMoltenSprite(horizon, projScale, colW, numRays, zBuffer) {
+  if (bossPhase !== 'f1' || !molten.alive || !bossRoomEntered) { moltenEl.style.display = 'none'; return; }
+  const dx = molten.x - player.x, dy = molten.y - player.y;
+  const dist = Math.hypot(dx, dy);
+  let a = Math.atan2(dy, dx) - player.dir;
+  while (a >  Math.PI) a -= 2*Math.PI;
+  while (a < -Math.PI) a += 2*Math.PI;
+  if (Math.abs(a) > FOV/2 + 0.6) { moltenEl.style.display = 'none'; return; }
+  const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+  const colIdx = Math.floor(screenX / colW);
+  if (colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15) { moltenEl.style.display = 'none'; return; }
+  if (molten.fade > 0.02) {
+    let src = 'molten.gif';
+    if (molten.mode === 'attack') src = 'moltenataking.gif';
+    else if (molten.showBigCube > 0) src = 'cube.png';
+    if (moltenEl.dataset.src !== src) { moltenEl.src = src; moltenEl.dataset.src = src; }
+    const hpx = ((MOLTEN_TOP - MOLTEN_BOTTOM) / Math.max(0.4, dist)) * projScale;
+    const bottomY = horizon + ((EYE_H - MOLTEN_BOTTOM) / Math.max(0.4, dist)) * projScale;
+    const topY = bottomY - hpx;
+    const aspect = getAspect(src);
+    const wpx = hpx * (aspect > 0.1 ? aspect : MOLTEN_ASPECT);
+    moltenEl.style.display = 'block';
+    moltenEl.style.left = (screenX - wpx/2) + 'px';
+    moltenEl.style.top = topY + 'px';
+    moltenEl.style.width = wpx + 'px';
+    moltenEl.style.height = hpx + 'px';
+    moltenEl.style.zIndex = 60;
+    moltenEl.style.filter = `opacity(${molten.fade})`;
+  } else moltenEl.style.display = 'none';
+  if (molten.portal > 0.01) {
+    const proj = project(molten.x, molten.y, (MOLTEN_TOP + MOLTEN_BOTTOM) / 2);
+    if (proj) {
+      const baseR = (0.7 / Math.max(0.4, dist)) * projScale;
+      const radius = baseR * molten.portal;
+      ctx.save();
+      const grad = ctx.createRadialGradient(proj.x, proj.y, 0, proj.x, proj.y, radius);
+      grad.addColorStop(0, 'rgba(200,80,255,0.9)');
+      grad.addColorStop(0.6, 'rgba(120,30,180,0.7)');
+      grad.addColorStop(1, 'rgba(40,0,60,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, radius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+function drawSmokeSprite(horizon, projScale, colW, numRays, zBuffer) {
+  if (bossPhase !== 'f2' || !smoke.alive) { smokeEl.style.display = 'none'; return; }
+  const dx = smoke.x - player.x, dy = smoke.y - player.y;
+  const dist = Math.hypot(dx, dy);
+  let a = Math.atan2(dy, dx) - player.dir;
+  while (a >  Math.PI) a -= 2*Math.PI;
+  while (a < -Math.PI) a += 2*Math.PI;
+  if (smokeNearPortal.active) {
+    const pdx = smokeNearPortal.x - player.x, pdy = smokeNearPortal.y - player.y;
+    let pa = Math.atan2(pdy, pdx) - player.dir;
+    while (pa >  Math.PI) pa -= 2*Math.PI;
+    while (pa < -Math.PI) pa += 2*Math.PI;
+    if (Math.abs(pa) < FOV/2 + 0.4) {
+      const pcolIdx = Math.floor((W/2 + Math.tan(pa) * (W/2) / Math.tan(FOV/2)) / colW);
+      const pd = Math.hypot(pdx, pdy);
+      if (!(pcolIdx >= 0 && pcolIdx < numRays && zBuffer[pcolIdx] < pd - 0.15)) {
+        const lifeRatio = Math.max(0, smokeNearPortal.life / smokeNearPortal.maxLife);
+        drawTeleportCube(smokeNearPortal.x, smokeNearPortal.y, 0.9 + 0.3 * (1 - lifeRatio), lifeRatio);
+      }
+    }
+  }
+  for (const fp of smokeFarPortals) {
+    const pdx = fp.x - player.x, pdy = fp.y - player.y;
+    let pa = Math.atan2(pdy, pdx) - player.dir;
+    while (pa >  Math.PI) pa -= 2*Math.PI;
+    while (pa < -Math.PI) pa += 2*Math.PI;
+    if (Math.abs(pa) > FOV/2 + 0.4) continue;
+    const psx = W/2 + Math.tan(pa) * (W/2) / Math.tan(FOV/2);
+    const pcol = Math.floor(psx / colW);
+    const pd = Math.hypot(pdx, pdy);
+    if (pcol >= 0 && pcol < numRays && zBuffer[pcol] < pd - 0.15) continue;
+    const lifeRatio = Math.max(0, fp.life / fp.maxLife);
+    const fadeIn = Math.min(1, (fp.maxLife - fp.life) / 0.3);
+    const alpha = Math.min(fadeIn, lifeRatio);
+    drawTeleportCube(fp.x, fp.y, 1.4, alpha);
+  }
+  if (Math.abs(a) < FOV/2 + 0.6) {
+    const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+    const colIdx = Math.floor(screenX / colW);
+    if (!(colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15)) {
+      const src = smokeEl.dataset.src || 'smokemolten.gif';
+      const hpx = ((MOLTEN_TOP - MOLTEN_BOTTOM) / Math.max(0.4, dist)) * projScale;
+      const bottomY = horizon + ((EYE_H - MOLTEN_BOTTOM) / Math.max(0.4, dist)) * projScale;
+      const topY = bottomY - hpx;
+      const aspect = getAspect(src);
+      const wpx = hpx * (aspect > 0.1 ? aspect : MOLTEN_ASPECT);
+      smokeEl.style.display = 'block';
+      smokeEl.style.left = (screenX - wpx/2) + 'px';
+      smokeEl.style.top = topY + 'px';
+      smokeEl.style.width = wpx + 'px';
+      smokeEl.style.height = hpx + 'px';
+      smokeEl.style.zIndex = 60;
+      smokeEl.style.filter = `opacity(${smoke.fade})`;
+    } else smokeEl.style.display = 'none';
+  } else smokeEl.style.display = 'none';
+  for (const c of smokeCubes) {
+    const cdx = c.x - player.x, cdy = c.y - player.y;
+    const cd = Math.hypot(cdx, cdy);
+    let ca = Math.atan2(cdy, cdx) - player.dir;
+    while (ca >  Math.PI) ca -= 2*Math.PI;
+    while (ca < -Math.PI) ca += 2*Math.PI;
+    if (Math.abs(ca) > FOV/2 + 0.5) continue;
+    const csx = W/2 + Math.tan(ca) * (W/2) / Math.tan(FOV/2);
+    const ccol = Math.floor(csx / colW);
+    if (ccol >= 0 && ccol < numRays && zBuffer[ccol] < cd - 0.15) continue;
+    const proj = project(c.x, c.y, 1.0);
+    if (!proj) continue;
+    const chpx = (c.size / Math.max(0.4, cd)) * projScale;
+    if (smokecubeImgEl.complete && smokecubeImgEl.naturalWidth > 0) {
+      const asp = smokecubeImgEl.naturalWidth / smokecubeImgEl.naturalHeight;
+      const cwpx = chpx * (asp > 0.1 ? asp : 1.0);
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      ctx.drawImage(smokecubeImgEl, proj.x - cwpx/2, proj.y - chpx/2, cwpx, chpx);
+      ctx.restore();
+    }
+  }
+}
+
+function drawSaimonWorld(horizon, projScale, colW, numRays, zBuffer) {
+  if (!act4) {
+    saimonEl.style.display = 'none';
+    saimonHandEl.style.display = 'none';
+    vodaEl.style.display = 'none';
+    vorotEl.style.display = 'none';
+    return;
+  }
+
+  if (saimon.alive || act4Phase === 'hurt_talk') {
+    const src = saimonEl.dataset.src || 'saimon.gif';
+    if (isLoaded(src)) {
+      const dx = saimon.x - player.x, dy = saimon.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      let a = Math.atan2(dy, dx) - player.dir;
+      while (a >  Math.PI) a -= 2*Math.PI;
+      while (a < -Math.PI) a += 2*Math.PI;
+      if (Math.abs(a) > FOV/2 + 0.6) { saimonEl.style.display = 'none'; }
+      else {
+        const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+        const colIdx = Math.floor(screenX / colW);
+        if (colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15) {
+          saimonEl.style.display = 'none';
+        } else {
+          const hpx = ((SAIMON_TOP - SAIMON_BOTTOM) / Math.max(0.4, dist)) * projScale;
+          const bottomY = horizon + ((EYE_H - SAIMON_BOTTOM) / Math.max(0.4, dist)) * projScale;
+          const topY = bottomY - hpx;
+          const aspect = getAspect(src);
+          const wpx = hpx * (aspect > 0.1 ? aspect : SAIMON_ASPECT);
+          saimonEl.style.display = 'block';
+          saimonEl.style.left = (screenX - wpx/2) + 'px';
+          saimonEl.style.top = topY + 'px';
+          saimonEl.style.width = wpx + 'px';
+          saimonEl.style.height = hpx + 'px';
+          saimonEl.style.zIndex = 60;
+          saimonEl.style.filter = 'none';
+        }
+      }
+    }
+
+    if (act4Phase === 'f1' && isLoaded('saimonchil.gif')) {
+      const dirToPlayer = Math.atan2(player.y - saimon.y, player.x - saimon.x);
+      const perpX = -Math.sin(dirToPlayer);
+      const perpY = Math.cos(dirToPlayer);
+      const handOffsetSide = 0.5;
+      let handX = saimon.x + perpX * handOffsetSide;
+      let handY = saimon.y + perpY * handOffsetSide;
+      let handZ = SAIMON_TOP * 0.6;
+
+      if (saimon.handAttackAnim > 0) {
+        const t = 1 - (saimon.handAttackAnim / 0.6);
+        handX = saimon.x + (player.x - saimon.x) * t * 0.9;
+        handY = saimon.y + (player.y - saimon.y) * t * 0.9;
+      } else {
+        const distP = Math.hypot(player.x - saimon.x, player.y - saimon.y);
+        if (distP < SAIMON_HAND_REACH) {
+          const reach = 1.0 - distP / SAIMON_HAND_REACH;
+          handX = saimon.x + (player.x - saimon.x) * 0.4 * reach;
+          handY = saimon.y + (player.y - saimon.y) * 0.4 * reach;
+        }
+      }
+
+      const hdx = handX - player.x, hdy = handY - player.y;
+      const hdist = Math.hypot(hdx, hdy);
+      let ha = Math.atan2(hdy, hdx) - player.dir;
+      while (ha >  Math.PI) ha -= 2*Math.PI;
+      while (ha < -Math.PI) ha += 2*Math.PI;
+      if (Math.abs(ha) > FOV/2 + 0.6) {
+        saimonHandEl.style.display = 'none';
+      } else {
+        const hscreenX = W/2 + Math.tan(ha) * (W/2) / Math.tan(FOV/2);
+        const hcol = Math.floor(hscreenX / colW);
+        if (hcol >= 0 && hcol < numRays && zBuffer[hcol] < hdist - 0.15) {
+          saimonHandEl.style.display = 'none';
+        } else {
+          const img = preloads['saimonchil.gif'];
+          const aspect = img.naturalWidth / img.naturalHeight;
+          const hpxH = ((SAIMON_TOP * 0.7 - handZ + SAIMON_TOP * 0.3) / Math.max(0.4, hdist)) * projScale;
+          const bottomYH = horizon + ((EYE_H - (handZ - 0.5)) / Math.max(0.4, hdist)) * projScale;
+          const topYH = bottomYH - hpxH;
+          const wpxH = hpxH * (aspect > 0.1 ? aspect : 1.0);
+          saimonHandEl.style.display = 'block';
+          saimonHandEl.style.left = (hscreenX - wpxH/2) + 'px';
+          saimonHandEl.style.top = topYH + 'px';
+          saimonHandEl.style.width = wpxH + 'px';
+          saimonHandEl.style.height = hpxH + 'px';
+          saimonHandEl.style.zIndex = 61;
+          saimonHandEl.style.filter = 'none';
+        }
+      }
+    } else {
+      saimonHandEl.style.display = 'none';
+    }
+  } else {
+    saimonEl.style.display = 'none';
+    saimonHandEl.style.display = 'none';
+  }
+
+  if (voda.active && isLoaded('badvodovorot.gif')) {
+    const dx = voda.x - player.x, dy = voda.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    let a = Math.atan2(dy, dx) - player.dir;
+    while (a >  Math.PI) a -= 2*Math.PI;
+    while (a < -Math.PI) a += 2*Math.PI;
+    if (Math.abs(a) > FOV/2 + 0.6) {
+      vodaEl.style.display = 'none';
+    } else {
+      const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+      const colIdx = Math.floor(screenX / colW);
+      if (colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15) {
+        vodaEl.style.display = 'none';
+      } else {
+        const img = preloads['badvodovorot.gif'];
+        const aspect = img.naturalWidth / img.naturalHeight;
+        const hpx = ((1.5 - 0.1) / Math.max(0.4, dist)) * projScale;
+        const bottomY = horizon + ((EYE_H - 0.1) / Math.max(0.4, dist)) * projScale;
+        const topY = bottomY - hpx;
+        const wpx = hpx * (aspect > 0.1 ? aspect : 1.0);
+        vodaEl.style.display = 'block';
+        vodaEl.style.left = (screenX - wpx/2) + 'px';
+        vodaEl.style.top = topY + 'px';
+        vodaEl.style.width = wpx + 'px';
+        vodaEl.style.height = hpx + 'px';
+        vodaEl.style.zIndex = 59;
+        vodaEl.style.filter = 'none';
+      }
+    }
+  } else {
+    vodaEl.style.display = 'none';
+  }
+
+  if (act4Phase === 'f2' && vorot.alive && isLoaded('vorotsaimon.gif')) {
+    const dx = vorot.x - player.x, dy = vorot.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    let a = Math.atan2(dy, dx) - player.dir;
+    while (a >  Math.PI) a -= 2*Math.PI;
+    while (a < -Math.PI) a += 2*Math.PI;
+    if (Math.abs(a) > FOV/2 + 0.6) {
+      vorotEl.style.display = 'none';
+    } else {
+      const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+      const colIdx = Math.floor(screenX / colW);
+      if (colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15) {
+        vorotEl.style.display = 'none';
+      } else {
+        const img = preloads['vorotsaimon.gif'];
+        const aspect = img.naturalWidth / img.naturalHeight;
+        const hpx = ((SAIMON_TOP - SAIMON_BOTTOM) / Math.max(0.4, dist)) * projScale;
+        const bottomY = horizon + ((EYE_H - SAIMON_BOTTOM) / Math.max(0.4, dist)) * projScale;
+        const topY = bottomY - hpx;
+        const wpx = hpx * (aspect > 0.1 ? aspect : SAIMON_ASPECT);
+        vorotEl.style.display = 'block';
+        vorotEl.style.left = (screenX - wpx/2) + 'px';
+        vorotEl.style.top = topY + 'px';
+        vorotEl.style.width = wpx + 'px';
+        vorotEl.style.height = hpx + 'px';
+        vorotEl.style.zIndex = 60;
+        vorotEl.style.filter = 'opacity(0.7)';
+      }
+    }
+  } else {
+    vorotEl.style.display = 'none';
+  }
+
+  for (let i = 0; i < vodovorotPool.length; i++) {
+    const el = vodovorotPool[i];
+    const v = vodovorots[i];
+    if (!v) { el.style.display = 'none'; continue; }
+    drawVortexDom(el, v.x, v.y, 1.6, Math.min(1, v.life / 0.3), colW, numRays, zBuffer, horizon, projScale);
+  }
+  for (let i = 0; i < badvodovorotPool.length; i++) {
+    const el = badvodovorotPool[i];
+    const b = badvodovorots[i];
+    if (!b) { el.style.display = 'none'; continue; }
+    drawVortexDom(el, b.x, b.y, 1.6, Math.min(1, b.life / 0.3), colW, numRays, zBuffer, horizon, projScale);
+  }
+}
+
+function drawMoltenCubes(horizon, projScale, colW, numRays, zBuffer) {
+  for (const c of moltenCubes) {
+    const dx = c.x - player.x, dy = c.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    let a = Math.atan2(dy, dx) - player.dir;
+    while (a >  Math.PI) a -= 2*Math.PI;
+    while (a < -Math.PI) a += 2*Math.PI;
+    if (Math.abs(a) > FOV/2 + 0.3) continue;
+    const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+    const colIdx = Math.floor(screenX / colW);
+    if (colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15) continue;
+    const hpx = (CUBE_SIZE / Math.max(0.4, dist)) * projScale;
+    const centerZ = 1.2;
+    const screenY = horizon + ((EYE_H - centerZ) / Math.max(0.4, dist)) * projScale;
+    const aspect = getAspect('cube.png');
+    const wpx = hpx * (aspect > 0.1 ? aspect : 1.0);
+    if (isLoaded('cube.png')) ctx.drawImage(preloads['cube.png'], screenX - wpx/2, screenY - hpx/2, wpx, hpx);
+    else { ctx.fillStyle = '#c040ff'; ctx.fillRect(screenX - wpx/2, screenY - hpx/2, wpx, hpx); }
+  }
+}
+
+function render(){
+  if (transitionActive) { ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, W, H); return; }
+
+  let shakeX = 0, shakeY = 0;
+  if (player.shake > 0.01){
+    shakeX = (Math.random() - 0.5) * player.shake * 20;
+    shakeY = (Math.random() - 0.5) * player.shake * 20;
+  }
+
+  const horizon = H/2 + pitchPixels + Math.sin(player.bob) * 3;
+  const projScale = H * 0.9;
+  const theme = currentTheme;
+
+  ctx.save();
+  ctx.translate(W/2, H/2);
+  ctx.rotate(player.cameraRoll);
+  ctx.translate(-W/2, -H/2);
+  ctx.translate(shakeX, shakeY);
+
+  // Небо с цветами темы
+  const sky = ctx.createLinearGradient(0, 0, 0, horizon);
+  sky.addColorStop(0, theme.skyTop); 
+  sky.addColorStop(1, theme.skyBottom);
+  ctx.fillStyle = sky; ctx.fillRect(-1000, -1000, W+2000, horizon+1000);
+
+  // Облака для 3 и 4 актов
+  if (theme.clouds) {
+    drawProceduralClouds(horizon, 0, 0, theme); // shake уже учтён в translate
+  }
+
+  // Пол
+  const flr = ctx.createLinearGradient(0, horizon, 0, H);
+  flr.addColorStop(0, theme.floorTop); 
+  flr.addColorStop(1, theme.floorBottom);
+  ctx.fillStyle = flr; ctx.fillRect(-1000, horizon, W+2000, H - horizon + 1000);
+
+  const numRays = Math.min(400, Math.floor(W/3));
+  const colW = W / numRays;
+  const zBuffer = new Float32Array(numRays);
+
+  for (let i = 0; i < numRays; i++){
+    const rayAngle = player.dir - FOV/2 + (i/numRays)*FOV;
+    const hit = castRay(player.x, player.y, rayAngle);
+    const corr = hit.dist * Math.cos(rayAngle - player.dir);
+    zBuffer[i] = corr;
+    drawWallStrip(i, colW, horizon, projScale, hit, corr);
+  }
+
+  if (act2 || act3 || act4) {
+    for (let line of activeLines) {
+      let p = line.timer < 0.2 ? line.timer / 0.2 : 1;
+      let alpha = 1;
+      if (line.timer > 0.5) alpha = 1 - (line.timer - 0.5) / 0.3;
+      if (alpha <= 0) continue;
+      let x1, y1, x2, y2, z1, z2;
+      if (line.type === 1 || line.type === 2) {
+        x1 = line.C.x + (line.L.x - line.C.x) * p;
+        y1 = line.C.y + (line.L.y - line.C.y) * p;
+        x2 = line.C.x + (line.R.x - line.C.x) * p;
+        y2 = line.C.y + (line.R.y - line.C.y) * p;
+        z1 = line.z1; z2 = line.z2;
+      } else {
+        x1 = line.L.x; y1 = line.L.y; x2 = line.L.x; y2 = line.L.y;
+        if (line.type === 4) { x1 = line.R.x; y1 = line.R.y; x2 = line.R.x; y2 = line.R.y; }
+        z1 = line.zCenter + (line.z1 - line.zCenter) * p;
+        z2 = line.zCenter + (line.z2 - line.zCenter) * p;
+      }
+      const p1 = project(x1, y1, z1);
+      const p2 = project(x2, y2, z2);
+      if (p1 && p2) {
+        ctx.save();
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  for (let i = 0; i < enemies.length; i++){
+    const e = enemies[i];
+    const el = enemyEls[i];
+    if (!e.alive){ el.style.display = 'none'; continue; }
+    const dx = e.x - player.x, dy = e.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    let a = Math.atan2(dy, dx) - player.dir;
+    while (a >  Math.PI) a -= 2*Math.PI;
+    while (a < -Math.PI) a += 2*Math.PI;
+    if (Math.abs(a) > FOV/2 + 0.3){ el.style.display = 'none'; continue; }
+    const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+    const colIdx = Math.floor(screenX / colW);
+    if (colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15){ el.style.display = 'none'; continue; }
+    const eh = (act2 || act3 || act4) ? ENEMY_HEIGHT_2 : ENEMY_HEIGHT;
+    const hpx = (eh / Math.max(0.4, dist)) * projScale;
+    const floorY = horizon + (EYE_H / Math.max(0.4, dist)) * projScale;
+    const topY = floorY - hpx;
+    let src = 'vpered.gif';
+    if (el.dataset.src !== src){ el.src = src; el.dataset.src = src; }
+    const aspect = getAspect(src);
+    const wpx = hpx * aspect;
+    const fade = Math.max(0.35, Math.min(1, 1.6 - dist * 0.10));
+    el.style.display = 'block';
+    el.style.left   = (screenX - wpx/2) + 'px';
+    el.style.top    = topY + 'px';
+    el.style.width  = wpx + 'px';
+    el.style.height = hpx + 'px';
+    if (e.hitFlash > 0) el.style.filter = `brightness(${fade}) brightness(0.45) sepia(1) hue-rotate(255deg) saturate(10) brightness(1.2) drop-shadow(0 0 10px #a060c0) drop-shadow(0 0 20px #a060c0)`;
+    else el.style.filter = `brightness(${fade})`;
+    el.style.zIndex = 200 - Math.min(100, Math.round(dist * 4));
+  }
+
+  if ((act2 || act3 || act4) && ant.active && isLoaded(ant.attackAnim > 0 ? 'antaka.gif' : 'ant.gif')) {
+    const dx = ant.x - player.x, dy = ant.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    let a = Math.atan2(dy, dx) - player.dir;
+    while (a >  Math.PI) a -= 2*Math.PI;
+    while (a < -Math.PI) a += 2*Math.PI;
+    if (Math.abs(a) <= FOV/2 + 0.3) {
+      const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+      const colIdx = Math.floor(screenX / colW);
+      let visible = true;
+      if (colIdx >= 0 && colIdx < numRays && zBuffer[colIdx] < dist - 0.15) visible = false;
+      if (visible) {
+        const hpx = (ANT_HEIGHT / Math.max(0.4, dist)) * projScale;
+        const floorY = horizon + (EYE_H / Math.max(0.4, dist)) * projScale;
+        const topY = floorY - hpx;
+        let src = ant.attackAnim > 0 ? 'antaka.gif' : 'ant.gif';
+        if (antEl.dataset.src !== src) { antEl.src = src; antEl.dataset.src = src; }
+        const aspect = getAspect(src);
+        const wpx = hpx * aspect;
+        const fade = Math.max(0.35, Math.min(1, 1.6 - dist * 0.10));
+        antEl.style.display = 'block';
+        antEl.style.left = (screenX - wpx/2) + 'px';
+        antEl.style.top = topY + 'px';
+        antEl.style.width = wpx + 'px';
+        antEl.style.height = hpx + 'px';
+        antEl.style.filter = `brightness(${fade})`;
+        antEl.style.zIndex = 200 - Math.min(100, Math.round(dist * 4));
+      } else antEl.style.display = 'none';
+    } else antEl.style.display = 'none';
+  } else if (antEl) antEl.style.display = 'none';
+
+  if (act2) {
+    if (boss.alive && bossRoomEntered) {
+      let bossSrc = 'mobius.gif';
+      if (isLoaded(bossSrc)) {
+        const bdx = boss.x - player.x, bdy = boss.y - player.y;
+        const bdist = Math.hypot(bdx, bdy);
+        let ba = Math.atan2(bdy, bdx) - player.dir;
+        while (ba >  Math.PI) ba -= 2*Math.PI;
+        while (ba < -Math.PI) ba += 2*Math.PI;
+        if (Math.abs(ba) <= FOV/2 + 0.6) {
+          const screenX = W/2 + Math.tan(ba) * (W/2) / Math.tan(FOV/2);
+          const bhpx = ((BOSS_TOP - BOSS_BOTTOM) / Math.max(0.4, bdist)) * projScale;
+          const bottomY = horizon + ((EYE_H - BOSS_BOTTOM) / Math.max(0.4, bdist)) * projScale;
+          const topY = bottomY - bhpx;
+          const aspect = getAspect(bossSrc);
+          const wpx = bhpx * (aspect > 0.1 ? aspect : BOSS_ASPECT);
+          bossEl.style.display = 'block';
+          bossEl.style.left   = (screenX - wpx/2) + 'px';
+          bossEl.style.top    = topY + 'px';
+          bossEl.style.width  = wpx + 'px';
+          bossEl.style.height = bhpx + 'px';
+          bossEl.style.zIndex = 50;
+          bossEl.style.filter = 'none';
+          bossEl.style.transform = boss.dir < 0 ? 'scaleX(-1)' : 'scaleX(1)';
+          if (bossEl.dataset.src !== bossSrc) { bossEl.src = bossSrc; bossEl.dataset.src = bossSrc; }
+        } else bossEl.style.display = 'none';
+      }
+    } else bossEl.style.display = 'none';
+  } else if (bossEl.parentNode) bossEl.style.display = 'none';
+
+  if (act3) {
+    if (bossPhase === 'f1') drawMoltenSprite(horizon, projScale, colW, numRays, zBuffer);
+    else if (moltenEl.parentNode) moltenEl.style.display = 'none';
+
+    if (bossPhase === 'outer') drawOuterWorld(horizon, projScale);
+
+    if (bossPhase === 'hurt') {
+      if (isLoaded('moltenhurt.png')) {
+        const dx = molten.x - player.x, dy = molten.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        let a = Math.atan2(dy, dx) - player.dir;
+        while (a >  Math.PI) a -= 2*Math.PI;
+        while (a < -Math.PI) a += 2*Math.PI;
+        if (Math.abs(a) <= FOV/2 + 0.6) {
+          const screenX = W/2 + Math.tan(a) * (W/2) / Math.tan(FOV/2);
+          const hpx = ((MOLTEN_TOP * 1.3 - MOLTEN_BOTTOM) / Math.max(0.4, dist)) * projScale;
+          const bottomY = horizon + ((EYE_H - MOLTEN_BOTTOM) / Math.max(0.4, dist)) * projScale;
+          const topY = bottomY - hpx;
+          const aspect = getAspect('moltenhurt.png');
+          const wpx = hpx * (aspect > 0.1 ? aspect : MOLTEN_ASPECT);
+          if (smokeEl.dataset.src !== 'moltenhurt.png') { smokeEl.src = 'moltenhurt.png'; smokeEl.dataset.src = 'moltenhurt.png'; }
+          smokeEl.style.display = 'block';
+          smokeEl.style.left = (screenX - wpx/2) + 'px';
+          smokeEl.style.top = topY + 'px';
+          smokeEl.style.width = wpx + 'px';
+          smokeEl.style.height = hpx + 'px';
+          smokeEl.style.zIndex = 70;
+          smokeEl.style.filter = 'none';
+        } else smokeEl.style.display = 'none';
+      }
+    } else if (bossPhase !== 'f2') {
+      if (smokeEl.style.display === 'block' && smokeEl.dataset.src === 'moltenhurt.png') smokeEl.style.display = 'none';
+    }
+
+    if (bossPhase === 'f2') drawSmokeSprite(horizon, projScale, colW, numRays, zBuffer);
+    else if (bossPhase !== 'hurt') { if (smokeEl.parentNode) smokeEl.style.display = 'none'; }
+
+    if (bossPhase === 'f1') drawMoltenCubes(horizon, projScale, colW, numRays, zBuffer);
+  } else {
+    if (moltenEl.parentNode) moltenEl.style.display = 'none';
+    if (smokeEl.parentNode) smokeEl.style.display = 'none';
+  }
+
+  if (act4) drawSaimonWorld(horizon, projScale, colW, numRays, zBuffer);
+  else {
+    if (saimonEl.parentNode) saimonEl.style.display = 'none';
+    if (saimonHandEl.parentNode) saimonHandEl.style.display = 'none';
+    if (vodaEl.parentNode) vodaEl.style.display = 'none';
+    if (vorotEl.parentNode) vorotEl.style.display = 'none';
+    for (const el of vodovorotPool) el.style.display = 'none';
+    for (const el of badvodovorotPool) el.style.display = 'none';
+  }
+
+  ctx.restore();
+
+  if (act4 && waterOverlay > 0.001) {
+    ctx.save();
+    ctx.fillStyle = `rgba(10, 30, 80, ${waterOverlay * 0.55})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  updateHand(shakeX, shakeY);
+
+  let aimingAny = false;
+  for (const e of enemies){ if (e.alive && isAimingAt(e)){ aimingAny = true; break; } }
+  ctx.fillStyle = aimingAny ? '#a060c0' : '#c0b0d0';
+  ctx.beginPath();
+  ctx.arc(W/2, H/2, aimingAny ? 4 : 2.5, 0, Math.PI*2);
+  ctx.fill();
+
+  if (joy.active){
+    ctx.strokeStyle = 'rgba(100,60,120,0.5)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(joy.baseX, joy.baseY, joy.R, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = 'rgba(40,20,60,0.3)';
+    ctx.beginPath(); ctx.arc(joy.baseX, joy.baseY, joy.R, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(180,150,200,0.8)';
+    ctx.beginPath(); ctx.arc(joy.x, joy.y, joy.r, 0, Math.PI*2); ctx.fill();
+  }
+
+  ctx.fillStyle = '#c0b0d0';
+  ctx.font = '14px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('ТЕРПЕНИЕ ' + Math.floor(player.hp), 12, 22);
+
+  if (act2 || act3 || act4) {
+    if (ant.active) { ctx.fillStyle = '#80ff80'; ctx.fillText(`ANT: ${Math.ceil(ant.timer)}c`, 12, 42); }
+    else if (ant.cooldown > 0) { ctx.fillStyle = '#806080'; ctx.fillText(`ANT CD: ${Math.ceil(ant.cooldown)}c`, 12, 42); }
+    else { ctx.fillStyle = '#80ff80'; ctx.fillText('ANT: ГОТОВ', 12, 42); }
+  }
+
+  if (player.frozenTimer > 0) {
+    ctx.fillStyle = '#60c0ff';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(`ЗАМОРОЖЕН ${Math.ceil(player.frozenTimer)}c`, 12, 62);
+  }
+
+  if (act2 && boss.alive && bossRoomEntered) {
+    const barW = Math.min(300, W * 0.6), barH = 10;
+    const barX = (W - barW) / 2, barY = 20;
+    ctx.fillStyle = 'rgba(40, 20, 50, 0.7)'; ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    ctx.strokeStyle = '#a060c0'; ctx.lineWidth = 1; ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    const hpRatio = Math.max(0, boss.hp / boss.maxHp);
+    ctx.fillStyle = '#c060c0'; ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    ctx.fillStyle = '#ffffff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('INVERTOR', W / 2, barY - 6); ctx.textAlign = 'left';
+  }
+  if (act3 && bossPhase === 'f1' && molten.alive && bossRoomEntered) {
+    const barW = Math.min(300, W * 0.6), barH = 10;
+    const barX = (W - barW) / 2, barY = 20;
+    ctx.fillStyle = 'rgba(50, 20, 10, 0.7)'; ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    ctx.strokeStyle = '#ff6020'; ctx.lineWidth = 1; ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    const hpRatio = Math.max(0, molten.hp / molten.maxHp);
+    const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    grad.addColorStop(0, '#ff8020'); grad.addColorStop(1, '#ff2020');
+    ctx.fillStyle = grad; ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    ctx.fillStyle = '#ffffff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('ABZES OF FIRE', W / 2, barY - 6); ctx.textAlign = 'left';
+  }
+  if (act3 && bossPhase === 'f2' && smoke.alive) {
+    const barW = Math.min(300, W * 0.6), barH = 10;
+    const barX = (W - barW) / 2, barY = 20;
+    ctx.fillStyle = 'rgba(30, 30, 30, 0.7)'; ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    ctx.strokeStyle = '#9090b0'; ctx.lineWidth = 1; ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    const hpRatio = Math.max(0, smoke.hp / smoke.maxHp);
+    ctx.fillStyle = '#a0a0c0'; ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    ctx.fillStyle = '#ffffff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('ABZES OF SMOKE', W / 2, barY - 6); ctx.textAlign = 'left';
+  }
+  if (act4 && bossRoomEntered && (act4Phase === 'f1' || act4Phase === 'hurt_talk') && saimon.alive) {
+    const barW = Math.min(300, W * 0.6), barH = 10;
+    const barX = (W - barW) / 2, barY = 20;
+    ctx.fillStyle = 'rgba(20, 40, 60, 0.7)'; ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    ctx.strokeStyle = '#4090d0'; ctx.lineWidth = 1; ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    const hpRatio = Math.max(0, saimon.hp / saimon.maxHp);
+    const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    grad.addColorStop(0, '#40a0ff'); grad.addColorStop(1, '#2060c0');
+    ctx.fillStyle = grad; ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    ctx.fillStyle = '#ffffff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('ABZES OF FIRE', W / 2, barY - 6); ctx.textAlign = 'left';
+  }
+  if (act4 && act4Phase === 'f2' && vorot.alive) {
+    const barW = Math.min(300, W * 0.6), barH = 10;
+    const barX = (W - barW) / 2, barY = 20;
+    ctx.fillStyle = 'rgba(20, 40, 60, 0.7)'; ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    ctx.strokeStyle = '#4080b0'; ctx.lineWidth = 1; ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+    const hpRatio = Math.max(0, vorot.hp / vorot.maxHp);
+    ctx.fillStyle = '#5090c0'; ctx.fillRect(barX, barY, barW * hpRatio, barH);
+    ctx.fillStyle = '#ffffff'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('VOROT', W / 2, barY - 6); ctx.textAlign = 'left';
+  }
+
+  if (player.gainTextTimer > 0){
+    ctx.fillStyle = '#a060c0'; ctx.font = 'bold 18px monospace';
+    ctx.fillText(player.gainText, 165, 23);
+  }
+
+  if (act2 && dialogTimer > 0) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; ctx.fillRect(20, H - 100, 250, 70);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#c0b0d0'; ctx.font = 'bold 14px monospace';
+    ctx.fillText('mobius', 30, H - 75);
+    ctx.fillStyle = '#ffffff'; ctx.font = '14px monospace';
+    ctx.fillText('WHAT U MEEN HELLO', 30, H - 50);
+  }
+  if (act3 && bossPhase === 'f1' && molten.alive && molten.mode === 'talk') {
+    const boxW = Math.min(400, W - 40), boxH = 64;
+    const bx = 20, by = H - 90;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'; ctx.fillRect(bx, by, boxW, boxH);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ff8040'; ctx.font = 'bold 13px monospace';
+    ctx.fillText('MOLTEN', bx + 10, by + 18);
+    ctx.fillStyle = '#ffffff'; ctx.font = '15px monospace';
+    ctx.fillText(MOLTEN_LINES[molten.talkIdx], bx + 10, by + 42);
+  }
+  if (act3 && bossPhase === 'hurt') {
+    const boxW = Math.min(400, W - 40), boxH = 64;
+    const bx = 20, by = H - 90;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'; ctx.fillRect(bx, by, boxW, boxH);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ff8040'; ctx.font = 'bold 13px monospace';
+    ctx.fillText('MOLTEN', bx + 10, by + 18);
+    ctx.fillStyle = '#ffffff'; ctx.font = '15px monospace';
+    ctx.fillText(HURT_LINES[hurtTalkIdx], bx + 10, by + 42);
+  }
+  if (act4 && act4Phase === 'talk') {
+    const boxW = Math.min(400, W - 40), boxH = 64;
+    const bx = 20, by = H - 90;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'; ctx.fillRect(bx, by, boxW, boxH);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4090ff'; ctx.font = 'bold 13px monospace';
+    ctx.fillText('SAIMON', bx + 10, by + 18);
+    ctx.fillStyle = '#ffffff'; ctx.font = '15px monospace';
+    ctx.fillText(SAIMON_LINES[saimonTalkIdx], bx + 10, by + 42);
+  }
+  if (act4 && act4Phase === 'hurt_talk') {
+    const boxW = Math.min(400, W - 40), boxH = 64;
+    const bx = 20, by = H - 90;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'; ctx.fillRect(bx, by, boxW, boxH);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4090ff'; ctx.font = 'bold 13px monospace';
+    ctx.fillText('SAIMON', bx + 10, by + 18);
+    ctx.fillStyle = '#ffffff'; ctx.font = '15px monospace';
+    ctx.fillText(SAIMON_HURT_LINE, bx + 10, by + 42);
+  }
+
+  if (player.hp <= 0){
+    ctx.fillStyle = 'rgba(5,0,10,0.85)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#804090'; ctx.font = 'bold 40px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ТЕРПЕНИЕ SOLO', W/2, H/2);
+    ctx.textAlign = 'left';
+  }
+}
+
+// ===== СТАРТ: 4 АКТ (для демонстрации) =====
+// Можно поменять на startAct3(), startAct2() или оставить startAct4()
+
+startAct2();
+function loop(now){
+  const dt = Math.min(0.05, (now - last)/1000);
+  last = now;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
